@@ -1,0 +1,76 @@
+name: mobile_user
+description: SafeAlert Emergency Response — User App (Tanza Municipality, Cavite)
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.5
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Routing
+  go_router: ^14.6.2
+
+  # State management
+  flutter_riverpod: ^2.6.1
+
+  # HTTP client
+  dio: ^5.7.0
+  http_parser: ^4.1.0
+
+  # Secure storage (tokens)
+  flutter_secure_storage: ^9.2.2
+
+  # BLE
+  flutter_blue_plus: ^1.35.3
+
+  # Camera + file picking
+  camera: ^0.11.0+2
+  image_picker: ^1.1.2
+
+  # Maps
+  flutter_map: ^7.0.2
+  latlong2: ^0.9.1
+
+  # GPS
+  geolocator: ^13.0.2
+  geocoding: ^3.0.0
+
+  # Background service (foreground service for BLE + location)
+  flutter_background_service: ^5.0.9
+
+  # Local notifications
+  flutter_local_notifications: ^18.0.1
+
+  # WebSocket / Socket.io
+  socket_io_client: ^3.0.2
+
+  # Connectivity
+  connectivity_plus: ^6.1.1
+
+  # Local storage / offline queue
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+
+  # Fonts
+  google_fonts: ^6.2.1
+
+  # Permissions
+  permission_handler: ^11.3.1
+
+  # Utilities
+  intl: ^0.19.0
+  url_launcher: ^6.3.1
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/

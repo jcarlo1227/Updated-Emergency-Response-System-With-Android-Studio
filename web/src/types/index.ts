@@ -1,0 +1,304 @@
+// ─── Auth ────────────────────────────────────────────────────────────────────
+
+export interface AdminAccount {
+  id: string;
+  email: string;
+  name?: string;
+  role: 'admin';
+}
+
+export interface AuthResponse {
+  accessToken: string;
+  refreshToken: string;
+  account: { id: string; email: string; role: string; name?: string };
+}
+
+// ─── Shared ──────────────────────────────────────────────────────────────────
+
+export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
+
+export interface UserRegistration {
+  _id: string;
+  name: string;
+  email: string;
+  phone: string;
+  role: 'user';
+  isApproved: boolean;
+  approvalStatus: ApprovalStatus;
+  municipality?: string;
+  barangay?: string;
+  streetAddress?: string;
+  bloodType?: string;
+  age?: number;
+  dateOfBirth?: string;
+  emergencyContactName?: string;
+  emergencyContactNumber?: string;
+  faceCaptureFileId?: string;
+  proofOfResidencyFileId?: string;
+  rejectionReason?: string;
+  approvedAt?: string;
+  rejectedAt?: string;
+  createdAt: string;
+}
+
+export type ResponderRole =
+  | 'medic'
+  | 'fire_responder'
+  | 'police_responder'
+  | 'ambulance_driver'
+  | 'disaster_response'
+  | 'general_responder';
+
+export type DutyStatus =
+  | 'off_duty'
+  | 'on_duty'
+  | 'busy'
+  | 'available'
+  | 'offline'
+  | 'suspended';
+
+export interface ResponderRegistration {
+  _id: string;
+  name: string;
+  email: string;
+  phone?: string;
+  streetAddress?: string;
+  dateOfBirth?: string;
+  age?: number;
+  responderRole?: ResponderRole;
+  assignedAmbulanceUnitId?: string;
+  role: 'responder';
+  isApproved: boolean;
+  approvalStatus: ApprovalStatus;
+  badgeId?: string;
+  department?: string;
+  agencyType?: string;
+  stationName?: string;
+  position?: string;
+  coverageArea?: string;
+  dutyStatus?: DutyStatus;
+  faceCaptureFileId?: string;
+  credentialFileId?: string;
+  rejectionReason?: string;
+  createdAt: string;
+}
+
+export interface AmbulanceUnitOption {
+  _id: string;
+  unitNumber: number;
+  unitName?: string;
+  plateNumber?: string;
+  availabilityStatus: AmbulanceAvailability;
+  assignedResponderId?: string;
+}
+
+// ─── Emergency ───────────────────────────────────────────────────────────────
+
+export type EmergencyType = 'medical' | 'crime' | 'fire' | 'general_sos';
+export type EmergencySource = 'mobile_app' | 'iot_keychain';
+export type EmergencyPriority = 'low' | 'medium' | 'high' | 'critical';
+export type EmergencyStatus =
+  | 'pending' | 'assigned' | 'responder_on_the_way' | 'responder_nearby'
+  | 'arrived' | 'resolved' | 'cancelled';
+
+export interface UserSnapshot {
+  fullName?: string;
+  age?: number;
+  dateOfBirth?: string;
+  phone?: string;
+  faceCaptureFileId?: string;
+  bloodType?: string;
+  streetAddress?: string;
+  barangay?: string;
+  municipality?: string;
+  emergencyContactName?: string;
+  emergencyContactNumber?: string;
+}
+
+export interface GeoPoint {
+  type: 'Point';
+  coordinates: [number, number]; // [lng, lat]
+  accuracyMeters?: number;
+  capturedAt?: string;
+}
+
+export interface TimelineEvent {
+  event: string;
+  at: string;
+  actorId?: string;
+  actorRole?: string;
+  note?: string;
+}
+
+export interface Emergency {
+  _id: string;
+  type: EmergencyType;
+  source: EmergencySource;
+  priority: EmergencyPriority;
+  status: EmergencyStatus;
+  userId: string;
+  assignedResponderId?: string;
+  currentLocation: GeoPoint;
+  isInsideTanza: boolean;
+  outsideScopeFlag: boolean;
+  barangay?: string;
+  municipality?: string;
+  notes?: string;
+  bleEventId?: string;
+  sourceDeviceId?: string;
+  buttonType?: EmergencyType;
+  deviceBatteryAtTrigger?: number;
+  idempotencyKey?: string;
+  userSnapshot?: UserSnapshot;
+  timeline: TimelineEvent[];
+  resolvedAt?: string;
+  resolvedBy?: string;
+  cancelledAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ─── Responder live location ──────────────────────────────────────────────────
+
+export interface ResponderLiveLocation {
+  responderId: string;
+  name: string;
+  agencyType?: string;
+  dutyStatus?: string;
+  currentLocation?: { latitude: number; longitude: number };
+  lastSeen?: string;
+}
+
+// ─── Ambulance ────────────────────────────────────────────────────────────────
+
+export type AmbulanceAvailability = 'available' | 'assigned' | 'maintenance' | 'out_of_service';
+export type AmbulanceRequestType = 'emergency' | 'schedule' | 'transfer';
+export type AmbulanceRequestStatus =
+  | 'pending_review' | 'approved' | 'rejected' | 'assigned'
+  | 'on_the_way' | 'arrived_pickup' | 'patient_onboard' | 'completed' | 'cancelled';
+
+export interface AmbulanceUnit {
+  _id: string;
+  unitNumber: number;
+  availabilityStatus: AmbulanceAvailability;
+  assignedResponderId?: string;
+  activeRequestId?: string;
+  assignmentStartAt?: string;
+  assignmentEndAt?: string;
+}
+
+export interface GeoLocationLabeled {
+  type: 'Point';
+  coordinates: [number, number];
+  addressLabel: string;
+  accuracyMeters?: number;
+}
+
+export interface PatientInfo {
+  fullName: string;
+  address: string;
+  contactNumber: string;
+  medicalCondition: string;
+  specialRequirements?: string;
+}
+
+export interface SenderSnapshot {
+  fullName?: string;
+  age?: number;
+  bloodType?: string;
+  municipality?: string;
+  barangay?: string;
+  proofOfIndigencyFileId?: string;
+  faceCaptureFileId?: string;
+  proofOfResidencyFileId?: string;
+}
+
+export interface AmbulanceRequest {
+  _id: string;
+  requestType: AmbulanceRequestType;
+  status: AmbulanceRequestStatus;
+  senderUserId: string;
+  senderSnapshot?: SenderSnapshot;
+  patient: PatientInfo;
+  accompanyingPerson?: { fullName: string; contactNumber: string };
+  pickupLocation: GeoLocationLabeled;
+  dropOffLocation: GeoLocationLabeled;
+  requestedDate?: string;
+  requestedTime?: string;
+  transferDetails?: { originHospitalName?: string; destinationHospitalName?: string; referringDoctor?: string };
+  notes?: string;
+  isEmergencyPriority: boolean;
+  isTanzaCitizenPriority: boolean;
+  requiresImmediateReview: boolean;
+  outsideScopeFlag: boolean;
+  reviewedAt?: string;
+  reviewedBy?: string;
+  rejectionReason?: string;
+  approvalNotes?: string;
+  assignedAmbulanceUnitId?: string;
+  assignedResponderId?: string;
+  assignedAt?: string;
+  timeline: TimelineEvent[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ─── Audit Log ───────────────────────────────────────────────────────────────
+
+export type AuditSeverity = 'info' | 'warning' | 'critical';
+
+export interface AuditLog {
+  _id: string;
+  actorId?: string;
+  actorName?: string;
+  actorRole: 'user' | 'responder' | 'admin' | 'system';
+  action: string;
+  module?: string;
+  description?: string;
+  reason?: string;
+  severity?: AuditSeverity;
+  targetType?: string;
+  targetId?: string;
+  meta?: Record<string, unknown>;
+  requestId?: string;
+  ip?: string;
+  createdAt: string;
+}
+
+// ─── Paginated response ───────────────────────────────────────────────────────
+
+export interface Paginated<T> {
+  items: T[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+// ─── Socket event payloads ───────────────────────────────────────────────────
+
+export interface EmergencyEventPayload {
+  emergencyId: string;
+  status: EmergencyStatus;
+  type: EmergencyType;
+  source: EmergencySource;
+  priority: EmergencyPriority;
+  userId: string;
+  assignedResponderId?: string;
+  isInsideTanza: boolean;
+  outsideScopeFlag: boolean;
+  barangay?: string;
+  location: GeoPoint;
+  userSnapshot?: UserSnapshot;
+  occurredAt: string;
+}
+
+export interface AmbulanceEventPayload {
+  requestId: string;
+  requestType: AmbulanceRequestType;
+  status: AmbulanceRequestStatus;
+  senderUserId: string;
+  assignedResponderId?: string;
+  assignedAmbulanceUnitId?: string;
+  isEmergencyPriority: boolean;
+  occurredAt: string;
+}
