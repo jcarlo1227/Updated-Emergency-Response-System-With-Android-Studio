@@ -15,6 +15,7 @@ class EmergencyHomeScreen extends ConsumerWidget {
     final user = ref.watch(currentUserProvider);
     final emergencyState = ref.watch(emergencyProvider);
     final hasActive = emergencyState is EmergencyActive;
+    final hasQueued = emergencyState is EmergencyQueued;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -57,6 +58,9 @@ class EmergencyHomeScreen extends ConsumerWidget {
                 onTap: () => context.push('/home/emergency/${emergencyState.emergency.id}'),
               ),
               const SizedBox(height: 16),
+            ] else if (hasQueued) ...[
+              const _QueuedAlertBanner(),
+              const SizedBox(height: 16),
             ],
             const Text('Emergency', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
             const SizedBox(height: 4),
@@ -89,6 +93,43 @@ class EmergencyHomeScreen extends ConsumerWidget {
             const SizedBox(height: 32),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _QueuedAlertBanner extends StatelessWidget {
+  const _QueuedAlertBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.warningAmber.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.warningAmber.withOpacity(0.4)),
+      ),
+      child: const Row(
+        children: [
+          Icon(Icons.cloud_upload_outlined, color: AppColors.warningAmber),
+          SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Alert Queued — No Connection',
+                  style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.warningAmber),
+                ),
+                Text(
+                  'Will send automatically when back online.',
+                  style: TextStyle(fontSize: 12, color: AppColors.textMuted),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

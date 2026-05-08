@@ -34,7 +34,9 @@
       "Bash(grep -r \"router\\\\\\\\.post\\\\|router\\\\\\\\.put\\\\|router\\\\\\\\.delete\" backend/src/modules/ambulance --include=\"*.ts\" -A2)",
       "Bash(git remote *)",
       "Bash(git add *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(Select-Object -First 10)"
     ]
   }
 }

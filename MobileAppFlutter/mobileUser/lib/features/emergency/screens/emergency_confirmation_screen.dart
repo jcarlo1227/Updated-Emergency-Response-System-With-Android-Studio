@@ -76,6 +76,14 @@ class _EmergencyConfirmationScreenState
     setState(() => _sending = false);
     if (em != null) {
       context.go('/home/emergency/${em.id}');
+    } else if (ref.read(emergencyProvider) is EmergencyQueued) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No connection — alert saved and will send automatically when online.'),
+          duration: Duration(seconds: 4),
+        ),
+      );
+      context.go('/home');
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Failed to send emergency. Check your connection.')),
