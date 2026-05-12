@@ -18,7 +18,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     api.get<{ data: { role: string; account: AdminAccount } }>('/auth/me')
       .then(({ data }) => {
         if (data.data.role === 'admin') {
-          setAdmin(data.data.account);
+          setAdmin({ ...data.data.account, role: 'admin' });
           connectSocket();
         } else {
           localStorage.removeItem('admin_access_token');

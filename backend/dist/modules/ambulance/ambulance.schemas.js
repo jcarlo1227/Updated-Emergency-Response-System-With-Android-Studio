@@ -73,6 +73,10 @@ export const listAdminQuerySchema = z
         .enum(['pending_review', 'approved', 'rejected', 'assigned', 'completed', 'all'])
         .default('pending_review'),
     requestType: z.enum(['emergency', 'schedule', 'transfer']).optional(),
+    includeArchived: z
+        .union([z.boolean(), z.enum(['true', 'false'])])
+        .transform((v) => v === true || v === 'true')
+        .default(false),
     page: z.coerce.number().int().min(1).default(1),
     limit: z.coerce.number().int().min(1).max(100).default(20),
 })

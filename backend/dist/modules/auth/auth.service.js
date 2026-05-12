@@ -1,7 +1,16 @@
 import bcrypt from 'bcryptjs';
 import { Admin, RefreshToken, Responder, User } from '../../models/index.js';
 import { AppError } from '../../shared/middleware/errorHandler.js';
+import * as filesService from '../files/files.service.js';
 import { hashRefreshToken, mintRefreshToken, signAccessToken, verifyRefreshToken, } from './jwt.js';
+function ageFromDob(dob) {
+    const today = new Date();
+    let age = today.getFullYear() - dob.getFullYear();
+    const m = today.getMonth() - dob.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < dob.getDate()))
+        age--;
+    return age;
+}
 const SALT_ROUNDS = 10;
 function clientMeta(req) {
     const fwd = req.header('x-forwarded-for');
@@ -22,21 +31,54 @@ async function persistRefresh(accountId, role, meta) {
     });
     return { token: minted.token };
 }
-export async function registerUser(input, req) {
+export async function registerUser(input, req, files) {
     const existing = await User.findOne({ email: input.email });
     if (existing) {
         throw new AppError('Email already registered', 409, 'EMAIL_TAKEN');
     }
+    const dob = input.dateOfBirth instanceof Date
+        ? input.dateOfBirth
+        : new Date(input.dateOfBirth);
+    const age = ageFromDob(dob);
+    const faceFileId = await filesService.uploadBuffer(files.faceCapture.buffer, files.faceCapture.originalname || 'face.jpg', files.faceCapture.mimetype, { ownerType: 'user', purpose: 'face_capture' });
+    let proofFileId;
+    try {
+        proofFileId = await filesService.uploadBuffer(files.proofOfResidency.buffer, files.proofOfResidency.originalname || 'id.jpg', files.proofOfResidency.mimetype, { ownerType: 'user', purpose: 'proof_of_residency' });
+    }
+    catch (err) {
+        await filesService.deleteFile(faceFileId);
+        throw err;
+    }
     const hashed = await bcrypt.hash(input.password, SALT_ROUNDS);
-    const user = await User.create({
-        name: input.name,
-        email: input.email,
-        phone: input.phone,
-        password: hashed,
-        municipality: input.municipality,
-        barangay: input.barangay,
-        contacts: [],
-    });
+    let user;
+    try {
+        user = await User.create({
+            name: input.name,
+            email: input.email,
+            phone: input.phone,
+            password: hashed,
+            municipality: input.municipality,
+            barangay: input.barangay,
+            streetAddress: input.streetAddress,
+            dateOfBirth: dob,
+            age,
+            bloodType: input.bloodType,
+            emergencyContactName: input.emergencyContactName,
+            emergencyContactNumber: input.emergencyContactNumber,
+            faceCaptureFileId: faceFileId,
+            proofOfResidencyFileId: proofFileId,
+            contacts: [],
+        });
+    }
+    catch (err) {
+        await filesService.deleteFile(faceFileId);
+        await filesService.deleteFile(proofFileId);
+        throw err;
+    }
+    await Promise.all([
+        filesService.updateFileOwner(faceFileId, user.id),
+        filesService.updateFileOwner(proofFileId, user.id),
+    ]);
     const accessToken = signAccessToken({
         sub: user.id,
         email: user.email,
@@ -56,26 +98,58 @@ export async function registerUser(input, req) {
         },
     };
 }
-export async function registerResponder(input, req) {
+export async function registerResponder(input, req, files) {
     const existing = await Responder.findOne({
         $or: [{ email: input.email }, { badgeId: input.badgeId }],
     });
     if (existing) {
         throw new AppError('Email or badge ID already registered', 409, 'RESPONDER_TAKEN');
     }
+    let faceCaptureFileId;
+    let credentialFileId;
+    if (files?.faceCapture) {
+        faceCaptureFileId = await filesService.uploadBuffer(files.faceCapture.buffer, files.faceCapture.originalname || 'face.jpg', files.faceCapture.mimetype, { ownerType: 'responder', purpose: 'face_capture' });
+    }
+    if (files?.credential) {
+        try {
+            credentialFileId = await filesService.uploadBuffer(files.credential.buffer, files.credential.originalname || 'credential.jpg', files.credential.mimetype, { ownerType: 'responder', purpose: 'credential' });
+        }
+        catch (err) {
+            if (faceCaptureFileId)
+                await filesService.deleteFile(faceCaptureFileId);
+            throw err;
+        }
+    }
     const hashed = await bcrypt.hash(input.password, SALT_ROUNDS);
-    const responder = await Responder.create({
-        name: input.name,
-        email: input.email,
-        password: hashed,
-        badgeId: input.badgeId,
-        department: input.department,
-        agencyType: input.agencyType,
-        stationName: input.stationName,
-        position: input.position,
-        coverageArea: input.coverageArea,
-        isOnDuty: false,
-    });
+    let responder;
+    try {
+        responder = await Responder.create({
+            name: input.name,
+            email: input.email,
+            phone: input.phone,
+            password: hashed,
+            badgeId: input.badgeId,
+            department: input.department,
+            agencyType: input.agencyType,
+            stationName: input.stationName,
+            position: input.position,
+            coverageArea: input.coverageArea,
+            faceCaptureFileId,
+            credentialFileId,
+            isOnDuty: false,
+        });
+    }
+    catch (err) {
+        if (faceCaptureFileId)
+            await filesService.deleteFile(faceCaptureFileId);
+        if (credentialFileId)
+            await filesService.deleteFile(credentialFileId);
+        throw err;
+    }
+    await Promise.all([
+        faceCaptureFileId ? filesService.updateFileOwner(faceCaptureFileId, responder.id) : undefined,
+        credentialFileId ? filesService.updateFileOwner(credentialFileId, responder.id) : undefined,
+    ]);
     const accessToken = signAccessToken({
         sub: responder.id,
         email: responder.email,
@@ -92,6 +166,13 @@ export async function registerResponder(input, req) {
             name: responder.name,
             approvalStatus: responder.approvalStatus,
             isApproved: responder.isApproved,
+            responderRole: responder.responderRole,
+            department: responder.department,
+            agencyType: responder.agencyType,
+            stationName: responder.stationName,
+            position: responder.position,
+            coverageArea: responder.coverageArea,
+            dutyStatus: responder.dutyStatus,
         },
     };
 }
@@ -179,6 +260,13 @@ export async function login(input, req) {
                     name: responder.name,
                     approvalStatus: responder.approvalStatus,
                     isApproved: responder.isApproved,
+                    responderRole: responder.responderRole,
+                    department: responder.department,
+                    agencyType: responder.agencyType,
+                    stationName: responder.stationName,
+                    position: responder.position,
+                    coverageArea: responder.coverageArea,
+                    dutyStatus: responder.dutyStatus,
                 },
             };
         }
@@ -206,6 +294,7 @@ export async function refresh(rawRefreshToken, req) {
     const role = stored.role;
     let email;
     let name;
+    const responderAccount = {};
     if (role === 'user') {
         const u = await User.findById(accountId);
         if (!u)
@@ -225,6 +314,15 @@ export async function refresh(rawRefreshToken, req) {
         }
         email = r.email;
         name = r.name;
+        Object.assign(responderAccount, {
+            responderRole: r.responderRole,
+            department: r.department,
+            agencyType: r.agencyType,
+            stationName: r.stationName,
+            position: r.position,
+            coverageArea: r.coverageArea,
+            dutyStatus: r.dutyStatus,
+        });
     }
     else {
         const a = await Admin.findById(accountId);
@@ -253,7 +351,7 @@ export async function refresh(rawRefreshToken, req) {
     return {
         accessToken,
         refreshToken: minted.token,
-        account: { id: accountId, email, role, name },
+        account: { id: accountId, email, role, name, ...responderAccount },
     };
 }
 export async function logout(rawRefreshToken) {
@@ -261,6 +359,22 @@ export async function logout(rawRefreshToken) {
         return;
     const tokenHash = hashRefreshToken(rawRefreshToken);
     await RefreshToken.updateOne({ tokenHash, revokedAt: { $exists: false } }, { $set: { revokedAt: new Date() } });
+}
+export async function changePassword(accountId, role, currentPassword, newPassword) {
+    const account = role === 'user'
+        ? await User.findById(accountId)
+        : role === 'responder'
+            ? await Responder.findById(accountId)
+            : await Admin.findById(accountId);
+    if (!account)
+        throw new AppError('Account not found', 404, 'NOT_FOUND');
+    const ok = await bcrypt.compare(currentPassword, account.password);
+    if (!ok) {
+        throw new AppError('Current password is incorrect', 400, 'INVALID_PASSWORD');
+    }
+    account.password = await bcrypt.hash(newPassword, SALT_ROUNDS);
+    await account.save();
+    await RefreshToken.updateMany({ accountId, revokedAt: { $exists: false } }, { $set: { revokedAt: new Date() } });
 }
 export async function getMe(accountId, role) {
     if (role === 'user') {

@@ -14,6 +14,8 @@ const NOTIFY_EMERGENCY_EVENTS = new Set<string>([
   'emergency.assigned',
   'emergency.resolved',
   'emergency.cancelled',
+  'emergency.responder_report',
+  'emergency.update_requested',
 ]);
 
 const NOTIFY_AMBULANCE_EVENTS = new Set<string>([
@@ -67,12 +69,26 @@ export async function recordEmergencyNotification(
     const typeLabel = HUMAN_EMERGENCY_TYPE[emergency.type] ?? emergency.type;
     const isCreated =
       event === 'emergency.created' || event === 'emergency.iot_keychain_created';
+    const latestReport = [...emergency.timeline]
+      .reverse()
+      .find((t) => t.event === 'responder_report');
+    const latestUpdateRequest = [...emergency.timeline]
+      .reverse()
+      .find((t) => t.event === 'admin_update_requested');
     const title = isCreated
       ? `New ${typeLabel} request`
-      : `${typeLabel} ${event.replace('emergency.', '').replace(/_/g, ' ')}`;
+      : event === 'emergency.responder_report'
+        ? `Responder report for ${typeLabel}`
+        : event === 'emergency.update_requested'
+          ? `Update requested for ${typeLabel}`
+          : `${typeLabel} ${event.replace('emergency.', '').replace(/_/g, ' ')}`;
     const message = isCreated
       ? `${sender} sent a ${typeLabel} request${emergency.barangay ? ` from ${emergency.barangay}` : ''}.`
-      : `${typeLabel} request ${event.replace('emergency.', '').replace(/_/g, ' ')}.`;
+      : event === 'emergency.responder_report'
+        ? `A responder submitted an incident update${latestReport?.note ? `: ${latestReport.note.slice(0, 160)}` : '.'}`
+        : event === 'emergency.update_requested'
+          ? `Admin requested another responder update${latestUpdateRequest?.note ? `: ${latestUpdateRequest.note.slice(0, 160)}` : '.'}`
+          : `${typeLabel} request ${event.replace('emergency.', '').replace(/_/g, ' ')}.`;
 
     const [lng, lat] = emergency.currentLocation.coordinates;
     const doc = await AdminNotification.create({

@@ -75,7 +75,8 @@ export function NotificationCenterButton() {
                   onOpen={() => {
                     setOpen(false);
                     if (n.type === 'emergency') {
-                      navigate('/map');
+                      void acknowledge(n.id);
+                      navigate(n.requestId ? `/map?emergencyId=${encodeURIComponent(n.requestId)}` : '/map');
                     } else if (n.type === 'ambulance') {
                       navigate('/ambulance-requests');
                     }

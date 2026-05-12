@@ -43,6 +43,11 @@ const registrationUpload = upload.fields([
   { name: 'proofOfResidency', maxCount: 1 },
 ]);
 
+const responderRegistrationUpload = upload.fields([
+  { name: 'faceCapture', maxCount: 1 },
+  { name: 'credential', maxCount: 1 },
+]);
+
 router.post(
   '/register/user',
   registrationLimiter,
@@ -78,11 +83,19 @@ router.post(
 router.post(
   '/register/responder',
   registrationLimiter,
+  responderRegistrationUpload,
   validateRequest({ body: registerResponderSchema }),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const input = req.validated!.body as RegisterResponderInput;
-      const result = await authService.registerResponder(input, req);
+      const filesByField = req.files as
+        | Record<string, Express.Multer.File[] | undefined>
+        | undefined;
+      const files = {
+        faceCapture: filesByField?.faceCapture?.[0],
+        credential: filesByField?.credential?.[0],
+      };
+      const result = await authService.registerResponder(input, req, files);
       res.status(201).json({ data: result });
     } catch (err) {
       next(err);

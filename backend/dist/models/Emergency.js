@@ -4,13 +4,27 @@ const timelineEventSchema = new Schema({
     at: { type: Date, required: true, default: Date.now },
     actorId: { type: Schema.Types.ObjectId },
     actorRole: { type: String, enum: ['user', 'responder', 'admin', 'system'] },
-    note: { type: String, trim: true, maxlength: 500 },
+    note: { type: String, trim: true, maxlength: 1000 },
+    reportType: {
+        type: String,
+        enum: ['arrival', 'field_report', 'follow_up', 'resolution_request'],
+    },
+    reportStatus: {
+        type: String,
+        enum: ['submitted', 'reviewed', 'needs_update', 'accepted'],
+    },
 }, { _id: true });
 const userSnapshotSchema = new Schema({
     fullName: { type: String, trim: true, maxlength: 120 },
     age: { type: Number, min: 0, max: 150 },
+    dateOfBirth: { type: Date },
+    phone: { type: String, trim: true, maxlength: 20 },
     faceCaptureFileId: { type: Schema.Types.ObjectId },
+    proofOfResidencyFileId: { type: Schema.Types.ObjectId },
     bloodType: { type: String, trim: true, maxlength: 8 },
+    streetAddress: { type: String, trim: true, maxlength: 250 },
+    barangay: { type: String, trim: true, maxlength: 120 },
+    municipality: { type: String, trim: true, maxlength: 120 },
     emergencyContactName: { type: String, trim: true, maxlength: 120 },
     emergencyContactNumber: { type: String, trim: true, maxlength: 20 },
 }, { _id: false });

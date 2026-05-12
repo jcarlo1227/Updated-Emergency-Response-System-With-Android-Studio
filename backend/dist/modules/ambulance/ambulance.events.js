@@ -1,3 +1,4 @@
+import { recordAmbulanceNotification } from '../notifications/notifications.service.js';
 function buildPayload(req) {
     return {
         requestId: req._id.toString(),
@@ -21,4 +22,5 @@ export function emitAmbulanceEvent(io, event, req) {
     if (req.assignedResponderId) {
         io.to(`responder:${req.assignedResponderId.toString()}`).emit(event, payload);
     }
+    void recordAmbulanceNotification(req, event, io);
 }

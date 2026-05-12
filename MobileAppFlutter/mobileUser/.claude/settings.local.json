@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/ac/OneDrive/Desktop/emergencyApp/MobileAppFlutter/mobileResponder/**)",
+      "Bash(flutter analyze *)"
+    ]
+  }
+}

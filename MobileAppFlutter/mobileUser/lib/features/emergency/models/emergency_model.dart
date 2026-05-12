@@ -43,6 +43,20 @@ class EmergencyModel {
     );
   }
 
+  Map<String, dynamic> toJson() => {
+    '_id': id,
+    'type': type,
+    'source': source,
+    'priority': priority,
+    'status': status,
+    'isInsideTanza': isInsideTanza,
+    'outsideScopeFlag': outsideScopeFlag,
+    if (barangay != null) 'barangay': barangay,
+    if (notes != null) 'notes': notes,
+    'createdAt': createdAt.toUtc().toIso8601String(),
+    if (assignedResponderId != null) 'assignedResponderId': assignedResponderId,
+  };
+
   bool get isActive => !['resolved', 'cancelled'].contains(status);
   bool get canCancel => status == 'pending';
 

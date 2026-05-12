@@ -1,6 +1,8 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import type { Server as SocketServer } from 'socket.io';
+import { z } from 'zod';
 import { authGuard, roleGuard, validateRequest } from '../../shared/middleware/index.js';
+import type { DutyStatus } from '../../models/index.js';
 import {
   historyQuerySchema,
   idParamSchema,
@@ -10,6 +12,19 @@ import {
   type IngestLocationInput,
 } from './locations.schemas.js';
 import * as svc from './locations.service.js';
+
+const dutyBodySchema = z.object({
+  status: z.enum([
+    'off_duty',
+    'on_duty',
+    'busy',
+    'available',
+    'responding',
+    'inactive',
+    'unavailable',
+    'offline',
+  ]),
+}).strict();
 
 export const locationsRouter = Router();
 export const emergencyHistoryRouter = Router();
@@ -97,6 +112,23 @@ respondersLiveRouter.get(
   async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const data = await svc.getRespondersLive();
+      res.json({ data });
+    } catch (err) { next(err); }
+  },
+);
+
+respondersLiveRouter.post(
+  '/duty',
+  roleGuard('responder'),
+  validateRequest({ body: dutyBodySchema }),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { status } = req.validated!.body as { status: DutyStatus };
+      const data = await svc.updateResponderDutyStatus(
+        req.auth!.accountId,
+        status,
+        ctx(req),
+      );
       res.json({ data });
     } catch (err) { next(err); }
   },

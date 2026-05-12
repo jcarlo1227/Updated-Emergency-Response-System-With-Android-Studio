@@ -21,6 +21,12 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
   bool _loading = false;
   bool _submitted = false;
 
+  bool get _hasDraft =>
+      !_submitted &&
+      (_notesCtrl.text.trim().isNotEmpty ||
+          _situationCtrl.text.trim().isNotEmpty ||
+          _actionCtrl.text.trim().isNotEmpty);
+
   @override
   void dispose() { _notesCtrl.dispose(); _situationCtrl.dispose(); _actionCtrl.dispose(); super.dispose(); }
 
@@ -39,10 +45,41 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
     }
   }
 
+  Future<bool> _confirmLeave() async {
+    if (!_hasDraft) return true;
+    final shouldLeave = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Discard report?'),
+        content: const Text('Your field report has unsaved text. Leave without submitting it?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Keep editing')),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Discard')),
+        ],
+      ),
+    );
+    return shouldLeave ?? false;
+  }
+
+  Future<void> _goBack() async {
+    if (await _confirmLeave() && mounted) {
+      context.canPop() ? context.pop() : context.go('/map');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Field Report')),
+    return WillPopScope(
+      onWillPop: _confirmLeave,
+      child: Scaffold(
+      appBar: AppBar(
+        leading: IconButton(
+          tooltip: 'Back',
+          icon: const Icon(Icons.arrow_back),
+          onPressed: _goBack,
+        ),
+        title: const Text('Field Report'),
+      ),
       body: _submitted
           ? const Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
               Icon(Icons.check_circle, color: AppColors.successGreen, size: 64),
@@ -70,6 +107,7 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
                 ),
               ),
             ),
+      ),
     );
   }
 }

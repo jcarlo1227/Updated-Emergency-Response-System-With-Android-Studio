@@ -7,6 +7,12 @@ const ambulanceUnitSchema = new Schema({
         min: 1,
         max: 12,
     },
+    unitName: { type: String, trim: true, maxlength: 80 },
+    plateNumber: { type: String, trim: true, maxlength: 20, uppercase: true },
+    unitType: {
+        type: String,
+        enum: ['bls', 'als', 'patient_transport', 'rescue', 'other'],
+    },
     availabilityStatus: {
         type: String,
         enum: ['available', 'assigned', 'maintenance', 'out_of_service'],

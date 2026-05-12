@@ -1,22 +1,86 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
-import { CheckCircle, XCircle, Truck, ChevronLeft, Navigation, User as UserIcon, Flag } from 'lucide-react';
+import { CheckCircle, XCircle, Truck, ChevronLeft, Navigation, User as UserIcon, Flag, ShieldCheck, Circle, AlertTriangle, AlertCircle, Loader2, MapPin } from 'lucide-react';
 import { AdminShell } from '@/components/layout/AdminShell';
 import { StatusBadge, PriorityBadge } from '@/components/ui/Badge';
 import { TableSkeleton } from '@/components/ui/Skeleton';
 import { Modal } from '@/components/ui/Modal';
-import { api } from '@/services/apiClient';
+import { AuthedImage } from '@/components/ui/AuthedImage';
+import { api, getApiError } from '@/services/apiClient';
 import { getSocket } from '@/services/socketClient';
 import { fmt } from '@/lib/utils';
-import { TANZA_CENTER, TANZA_ZOOM } from '@/styles/tokens';
 import type { AmbulanceRequest, AmbulanceUnit, Paginated, ResponderRegistration } from '@/types';
 
 type StatusFilter = 'pending_review' | 'approved' | 'rejected' | 'assigned' | 'completed' | 'all';
 
 const pickupIcon = new L.Icon({ iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png', iconSize: [25, 41], iconAnchor: [12, 41] });
 const dropIcon = new L.Icon({ iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png', iconSize: [25, 41], iconAnchor: [12, 41] });
+const ASSIGNABLE_DUTY_STATUSES = new Set(['on_duty', 'available']);
+const BLOCKED_DUTY_STATUSES = new Set([
+  'off_duty',
+  'busy',
+  'offline',
+  'suspended',
+  'inactive',
+  'unavailable',
+  'rejected',
+  'pending',
+  'not_approved',
+]);
+
+function isAssignableResponder(responder: ResponderRegistration) {
+  const dutyStatus = String(responder.dutyStatus ?? '').toLowerCase();
+  const activeDuty = responder.isOnDuty === true || ASSIGNABLE_DUTY_STATUSES.has(dutyStatus);
+  return (
+    responder.isApproved === true &&
+    responder.approvalStatus === 'approved' &&
+    activeDuty &&
+    !BLOCKED_DUTY_STATUSES.has(dutyStatus)
+  );
+}
+
+function getResponderDistanceKm(
+  responder: ResponderRegistration,
+  pickupCoordinates: [number, number],
+) {
+  if (!responder.currentLocation) return null;
+  const [pickupLng, pickupLat] = pickupCoordinates;
+  return haversineKm(
+    pickupLat,
+    pickupLng,
+    responder.currentLocation.latitude,
+    responder.currentLocation.longitude,
+  );
+}
+
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number) {
+  const toRad = (value: number) => (value * Math.PI) / 180;
+  const radiusKm = 6371;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return radiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function formatDistance(distanceKm: number) {
+  return distanceKm < 1
+    ? `${Math.round(distanceKm * 1000)} m`
+    : `${distanceKm.toFixed(1)} km`;
+}
+
+function formatDutyStatus(dutyStatus?: string) {
+  return dutyStatus ? dutyStatus.replace(/_/g, ' ') : 'on duty';
+}
+
+function formatResponderOption(responder: ResponderRegistration, distanceKm: number | null) {
+  const agency = responder.agencyType ?? responder.department ?? 'Responder';
+  const distance = distanceKm === null ? 'location unavailable' : `${formatDistance(distanceKm)} from pickup`;
+  return `${responder.name} - ${agency} - ${formatDutyStatus(responder.dutyStatus)} - ${distance}`;
+}
 
 export default function AmbulanceRequestsPage() {
   const qc = useQueryClient();
@@ -28,6 +92,8 @@ export default function AmbulanceRequestsPage() {
   const [assignModal, setAssignModal] = useState(false);
   const [selectedUnit, setSelectedUnit] = useState<string>('');
   const [selectedResponder, setSelectedResponder] = useState<string>('');
+  const [assignmentError, setAssignmentError] = useState<string | null>(null);
+  const [assignmentSuccess, setAssignmentSuccess] = useState<string | null>(null);
 
   const { data: listData, isLoading, refetch } = useQuery({
     queryKey: ['ambulance-requests', statusFilter, includeArchived],
@@ -43,12 +109,13 @@ export default function AmbulanceRequestsPage() {
   });
 
   const { data: availableUnits } = useQuery({
-    queryKey: ['ambulance-units-available'],
+    queryKey: ['ambulance-units-available', selected?._id],
     queryFn: async () => {
-      const { data } = await api.get<{ data: AmbulanceUnit[] }>('/admin/ambulance-requests/units/available');
+      const requestParam = selected?._id ? `?requestId=${encodeURIComponent(selected._id)}` : '';
+      const { data } = await api.get<{ data: AmbulanceUnit[] }>(`/admin/ambulance-requests/units/available${requestParam}`);
       return data.data;
     },
-    enabled: assignModal,
+    enabled: assignModal && !!selected,
   });
 
   const { data: responders } = useQuery({
@@ -59,6 +126,28 @@ export default function AmbulanceRequestsPage() {
     },
     enabled: assignModal,
   });
+
+  const activeResponders = useMemo(() => {
+    const pickupCoordinates = selected?.pickupLocation.coordinates;
+    return (responders ?? [])
+      .filter(isAssignableResponder)
+      .map((responder) => ({
+        responder,
+        distanceKm: pickupCoordinates
+          ? getResponderDistanceKm(responder, pickupCoordinates)
+          : null,
+      }))
+      .sort((a, b) => {
+        if (a.distanceKm === null && b.distanceKm === null) return a.responder.name.localeCompare(b.responder.name);
+        if (a.distanceKm === null) return 1;
+        if (b.distanceKm === null) return -1;
+        return a.distanceKm - b.distanceKm;
+      });
+  }, [responders, selected?.pickupLocation.coordinates]);
+
+  const selectedResponderDetails =
+    activeResponders.find(({ responder }) => responder._id === selectedResponder) ?? null;
+  const inactiveResponderCount = Math.max((responders?.length ?? 0) - activeResponders.length, 0);
 
   useEffect(() => {
     const socket = getSocket();
@@ -87,13 +176,28 @@ export default function AmbulanceRequestsPage() {
   });
 
   const assignMutation = useMutation({
-    mutationFn: async ({ id, unitId, responderId }: { id: string; unitId: string; responderId: string }) =>
-      api.post(`/admin/ambulance-requests/${id}/assign`, { ambulanceUnitId: unitId, responderId }),
-    onSuccess: () => {
+    mutationFn: async ({ id, unitId, responderId }: { id: string; unitId: string; responderId: string }) => {
+      const { data } = await api.post<{ data: AmbulanceRequest }>(
+        `/admin/ambulance-requests/${id}/assign`,
+        { ambulanceUnitId: unitId, responderId },
+      );
+      return data.data;
+    },
+    onSuccess: (updated) => {
       void qc.invalidateQueries({ queryKey: ['ambulance-requests'] });
       void qc.invalidateQueries({ queryKey: ['ambulance-units-available'] });
+      void qc.invalidateQueries({ queryKey: ['responders-list'] });
+      void qc.invalidateQueries({ queryKey: ['responders-live'] });
+      void qc.invalidateQueries({ queryKey: ['admin-overview'] });
       setAssignModal(false);
-      setSelected(null);
+      setSelected(updated);
+      setSelectedUnit('');
+      setSelectedResponder('');
+      setAssignmentError(null);
+      setAssignmentSuccess('Ambulance unit and responder assigned successfully.');
+    },
+    onError: (error) => {
+      setAssignmentError(getApiError(error));
     },
   });
 
@@ -119,6 +223,44 @@ export default function AmbulanceRequestsPage() {
 
   const requests = listData?.items ?? [];
 
+  const openAssignModal = () => {
+    setSelectedUnit('');
+    setSelectedResponder('');
+    setAssignmentError(null);
+    setAssignmentSuccess(null);
+    setAssignModal(true);
+  };
+
+  const closeAssignModal = () => {
+    setAssignModal(false);
+    setAssignmentError(null);
+  };
+
+  const handleAssign = () => {
+    if (!selected) return;
+    setAssignmentError(null);
+    setAssignmentSuccess(null);
+
+    if (!selectedUnit) {
+      setAssignmentError('Select an available ambulance unit before assigning.');
+      return;
+    }
+    if (activeResponders.length === 0) {
+      setAssignmentError('No active approved responders are available for assignment.');
+      return;
+    }
+    if (!selectedResponderDetails) {
+      setAssignmentError('Select an active approved responder before assigning.');
+      return;
+    }
+
+    assignMutation.mutate({
+      id: selected._id,
+      unitId: selectedUnit,
+      responderId: selectedResponderDetails.responder._id,
+    });
+  };
+
   if (selected) {
     const pickup = selected.pickupLocation.coordinates;
     const drop = selected.dropOffLocation.coordinates;
@@ -133,7 +275,7 @@ export default function AmbulanceRequestsPage() {
       >
         {selected.isEmergencyPriority && (
           <div className="mb-4 bg-red-600 text-white rounded-2xl px-6 py-3 flex items-center gap-3 font-bold">
-            <span className="animate-pulse">🚨</span>
+            <AlertIcon />
             CRITICAL — Emergency Ambulance Request
           </div>
         )}
@@ -154,9 +296,24 @@ export default function AmbulanceRequestsPage() {
                 <Row label="Municipality" value={selected.senderSnapshot?.municipality} />
                 <Row label="Barangay" value={selected.senderSnapshot?.barangay} />
               </dl>
+              <div className="mt-5 border-t border-slate-100 pt-5">
+                <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-slate-800">
+                  <ShieldCheck className="h-4 w-4 text-blue-600" /> Sender Verification
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <VerificationPhoto
+                    label="Profile / Face Photo"
+                    fileId={selected.senderSnapshot?.faceCaptureFileId}
+                  />
+                  <VerificationPhoto
+                    label="Valid ID"
+                    fileId={selected.senderSnapshot?.validIdFileId ?? selected.senderSnapshot?.proofOfResidencyFileId}
+                  />
+                </div>
+              </div>
               {selected.outsideScopeFlag && (
                 <div className="mt-4 bg-amber-50 border border-amber-200 text-amber-700 text-xs rounded-xl p-3 font-semibold">
-                  ⚠ Outside Tanza scope — requires admin decision
+                  Outside Tanza scope. Requires admin decision.
                 </div>
               )}
             </div>
@@ -186,11 +343,17 @@ export default function AmbulanceRequestsPage() {
               )}
               {selected.status === 'approved' && (
                 <button
-                  onClick={() => setAssignModal(true)}
+                  onClick={openAssignModal}
                   className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold"
                 >
                   <Truck className="w-4 h-4" /> Assign Ambulance Unit
                 </button>
+              )}
+              {assignmentSuccess && (
+                <div className="mt-3 flex items-start gap-2 rounded-xl border border-green-200 bg-green-50 p-3 text-sm font-semibold text-green-700">
+                  <CheckCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                  <span>{assignmentSuccess}</span>
+                </div>
               )}
               {(['assigned', 'on_the_way', 'arrived_pickup', 'patient_onboard'] as const).includes(
                 selected.status as 'assigned' | 'on_the_way' | 'arrived_pickup' | 'patient_onboard',
@@ -207,9 +370,7 @@ export default function AmbulanceRequestsPage() {
                       <Navigation className="w-4 h-4" /> Mark On the Way
                     </button>
                   )}
-                  {(selected.status === 'assigned' ||
-                    selected.status === 'on_the_way' ||
-                    selected.status === 'arrived_pickup') && (
+                  {selected.status === 'on_the_way' && (
                     <button
                       onClick={() =>
                         transitionMutation.mutate({ id: selected._id, action: 'mark-picked-up' })
@@ -220,15 +381,17 @@ export default function AmbulanceRequestsPage() {
                       <UserIcon className="w-4 h-4" /> Mark Picked Up
                     </button>
                   )}
-                  <button
-                    onClick={() =>
-                      transitionMutation.mutate({ id: selected._id, action: 'mark-completed' })
-                    }
-                    disabled={transitionMutation.isPending}
-                    className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl text-sm font-bold disabled:opacity-50"
-                  >
-                    <Flag className="w-4 h-4" /> Mark Completed
-                  </button>
+                  {(selected.status === 'arrived_pickup' || selected.status === 'patient_onboard') && (
+                    <button
+                      onClick={() =>
+                        transitionMutation.mutate({ id: selected._id, action: 'mark-completed' })
+                      }
+                      disabled={transitionMutation.isPending}
+                      className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl text-sm font-bold disabled:opacity-50"
+                    >
+                      <Flag className="w-4 h-4" /> Mark Completed
+                    </button>
+                  )}
                 </div>
               )}
               {selected.rejectionReason && (
@@ -263,8 +426,8 @@ export default function AmbulanceRequestsPage() {
               <div className="p-4 border-b border-slate-100">
                 <h2 className="font-bold text-slate-900 text-sm">Route Map</h2>
                 <p className="text-xs text-slate-500 mt-1">
-                  🟢 Pickup: {selected.pickupLocation.addressLabel}<br />
-                  🔴 Drop-off: {selected.dropOffLocation.addressLabel}
+                  <span className="inline-flex items-center gap-1.5"><Circle className="h-2.5 w-2.5 fill-green-500 text-green-500" /> Pickup: {selected.pickupLocation.addressLabel}</span><br />
+                  <span className="inline-flex items-center gap-1.5"><Circle className="h-2.5 w-2.5 fill-red-500 text-red-500" /> Drop-off: {selected.dropOffLocation.addressLabel}</span>
                 </p>
               </div>
               <div style={{ height: 240 }}>
@@ -308,27 +471,44 @@ export default function AmbulanceRequestsPage() {
           </div>
         </Modal>
 
-        <Modal open={assignModal} onClose={() => setAssignModal(false)} title="Assign Ambulance Unit" className="max-w-xl">
+        <Modal open={assignModal} onClose={closeAssignModal} title="Assign Ambulance Unit" className="max-w-2xl">
           <div className="space-y-5">
+            {assignmentError && (
+              <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
+                <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                <span>{assignmentError}</span>
+              </div>
+            )}
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2">Select Available Ambulance Unit</label>
-              {!availableUnits ? <p className="text-slate-400 text-sm">Loading units…</p> : availableUnits.length === 0 ? (
+              {!availableUnits ? (
+                <p className="flex items-center gap-2 text-slate-400 text-sm">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Loading units...
+                </p>
+              ) : availableUnits.length === 0 ? (
                 <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 text-sm font-medium">
                   No ambulance units available for this time range.
                 </div>
               ) : (
-                <div className="grid grid-cols-3 gap-2 max-h-40 overflow-y-auto">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-44 overflow-y-auto">
                   {availableUnits.map((unit) => (
                     <button
+                      type="button"
                       key={unit._id}
-                      onClick={() => setSelectedUnit(unit._id)}
-                      className={`p-3 rounded-xl border text-sm font-bold transition-colors ${
+                      onClick={() => {
+                        setSelectedUnit(unit._id);
+                        setAssignmentError(null);
+                      }}
+                      className={`min-h-16 p-3 rounded-xl border text-left text-sm font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                         selectedUnit === unit._id
                           ? 'bg-blue-600 text-white border-blue-600'
                           : 'bg-white border-slate-200 text-slate-700 hover:border-blue-300'
                       }`}
                     >
-                      Unit #{unit.unitNumber}
+                      <span className="block">Unit #{unit.unitNumber}</span>
+                      <span className={`mt-1 block text-xs font-medium ${selectedUnit === unit._id ? 'text-blue-100' : 'text-slate-500'}`}>
+                        {unit.availabilityStatus}
+                      </span>
                     </button>
                   ))}
                 </div>
@@ -336,27 +516,80 @@ export default function AmbulanceRequestsPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">Select Responder</label>
-              <select
-                value={selectedResponder}
-                onChange={(e) => setSelectedResponder(e.target.value)}
-                className="w-full border border-slate-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">— Choose responder —</option>
-                {(responders ?? []).map((r) => (
-                  <option key={r._id} value={r._id}>{r.name} · {r.agencyType ?? r.department}</option>
-                ))}
-              </select>
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <label className="block text-sm font-medium text-slate-700">Select Active Responder</label>
+                {inactiveResponderCount > 0 && (
+                  <span className="text-xs font-semibold text-slate-500">
+                    {inactiveResponderCount} inactive hidden
+                  </span>
+                )}
+              </div>
+
+              {!responders ? (
+                <p className="flex items-center gap-2 text-slate-400 text-sm">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Loading responders...
+                </p>
+              ) : activeResponders.length === 0 ? (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-medium text-amber-800">
+                  No approved responders are currently on duty or available. Ask a responder to go on duty before assigning this request.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <select
+                    value={selectedResponder}
+                    onChange={(e) => {
+                      setSelectedResponder(e.target.value);
+                      setAssignmentError(null);
+                    }}
+                    className="w-full border border-slate-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Choose active responder</option>
+                    {activeResponders.map(({ responder, distanceKm }) => (
+                      <option key={responder._id} value={responder._id}>
+                        {formatResponderOption(responder, distanceKm)}
+                      </option>
+                    ))}
+                  </select>
+
+                  {selectedResponderDetails && (
+                    <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-bold text-slate-900">{selectedResponderDetails.responder.name}</p>
+                          <p className="mt-1 text-xs font-semibold capitalize text-blue-700">
+                            {formatDutyStatus(selectedResponderDetails.responder.dutyStatus)}
+                          </p>
+                        </div>
+                        <span className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-slate-700">
+                          {selectedResponderDetails.responder.badgeId ?? 'No badge'}
+                        </span>
+                      </div>
+                      <div className="mt-3 grid gap-2 text-xs text-slate-600 sm:grid-cols-2">
+                        <span>{selectedResponderDetails.responder.agencyType ?? selectedResponderDetails.responder.department ?? 'Responder'}</span>
+                        <span>{selectedResponderDetails.responder.phone ?? 'No phone listed'}</span>
+                        {selectedResponderDetails.distanceKm !== null && (
+                          <span className="flex items-center gap-1 sm:col-span-2">
+                            <MapPin className="h-3.5 w-3.5" />
+                            {formatDistance(selectedResponderDetails.distanceKm)} from pickup
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="flex gap-3 justify-end">
-              <button onClick={() => setAssignModal(false)} className="px-4 py-2 border border-slate-200 rounded-xl text-sm text-slate-700">Cancel</button>
+              <button type="button" onClick={closeAssignModal} className="px-4 py-2 border border-slate-200 rounded-xl text-sm text-slate-700">Cancel</button>
               <button
-                onClick={() => selectedUnit && selectedResponder && assignMutation.mutate({ id: selected._id, unitId: selectedUnit, responderId: selectedResponder })}
-                disabled={!selectedUnit || !selectedResponder || assignMutation.isPending}
-                className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-bold disabled:opacity-50"
+                type="button"
+                onClick={handleAssign}
+                disabled={!selectedUnit || !selectedResponderDetails || assignMutation.isPending}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-bold disabled:opacity-50"
               >
-                {assignMutation.isPending ? 'Assigning…' : 'Assign'}
+                {assignMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                {assignMutation.isPending ? 'Assigning...' : 'Assign'}
               </button>
             </div>
           </div>
@@ -424,7 +657,7 @@ export default function AmbulanceRequestsPage() {
                       <span className={`inline-flex items-center gap-1.5 text-xs font-bold rounded-full px-2.5 py-0.5 capitalize ${
                         req.requestType === 'emergency' ? 'bg-red-50 text-red-700' : 'bg-blue-50 text-blue-700'
                       }`}>
-                        {req.isEmergencyPriority && '🚨 '}{req.requestType}
+                        {req.isEmergencyPriority && <AlertIcon small />}{req.requestType}
                       </span>
                     </td>
                     <td className="px-6 py-4 text-slate-900 font-medium">{req.patient.fullName}</td>
@@ -461,5 +694,33 @@ function Row({ label, value }: { label: string; value: string | undefined }) {
       <dt className="text-slate-400 text-xs w-28 flex-shrink-0 pt-0.5">{label}</dt>
       <dd className="text-slate-800 text-sm font-medium flex-1">{value}</dd>
     </div>
+  );
+}
+
+function VerificationPhoto({ label, fileId }: { label: string; fileId?: string }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+      <AuthedImage
+        fileId={fileId}
+        alt={`${label} preview`}
+        emptyLabel="Not uploaded"
+        className="h-36 w-full rounded-lg"
+      />
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <span className="text-xs font-semibold text-slate-700">{label}</span>
+        <span className={`text-[11px] font-bold ${fileId ? 'text-green-700' : 'text-slate-400'}`}>
+          {fileId ? 'Available' : 'Missing'}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function AlertIcon({ small = false }: { small?: boolean }) {
+  return (
+    <AlertTriangle
+      className={`${small ? 'mr-1 h-3.5 w-3.5' : 'h-5 w-5'} inline-flex flex-shrink-0`}
+      aria-hidden="true"
+    />
   );
 }

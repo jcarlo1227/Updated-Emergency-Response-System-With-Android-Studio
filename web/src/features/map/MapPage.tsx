@@ -1,16 +1,18 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
-import { X, AlertTriangle, Wifi } from 'lucide-react';
+import { X, AlertTriangle, Wifi, ShieldCheck, RadioTower } from 'lucide-react';
 import { AdminShell } from '@/components/layout/AdminShell';
 import { TypeBadge, PriorityBadge, StatusBadge } from '@/components/ui/Badge';
 import { AuthedImage } from '@/components/ui/AuthedImage';
 import { api } from '@/services/apiClient';
 import { getSocket } from '@/services/socketClient';
+import { useNotifications } from '@/features/notifications/NotificationProvider';
 import { fmt } from '@/lib/utils';
 import { TANZA_CENTER, TANZA_ZOOM } from '@/styles/tokens';
-import type { Emergency, Paginated } from '@/types';
+import type { Emergency, Paginated, ResponderLiveLocation } from '@/types';
 
 function makeIcon(color: string, iot = false) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="42" viewBox="0 0 32 42">
@@ -34,6 +36,28 @@ const ICONS: Record<string, L.DivIcon> = {
   iot: makeIcon('#DC2626', true),
 };
 
+const LIVE_RESPONDER_STATUSES = new Set(['on_duty', 'available', 'busy', 'responding']);
+
+function responderIcon(status?: string) {
+  const color =
+    status === 'busy' || status === 'responding'
+      ? '#F59E0B'
+      : status === 'available'
+        ? '#16A34A'
+        : '#2563EB';
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 30 30">
+    <circle cx="15" cy="15" r="12" fill="${color}" stroke="white" stroke-width="3"/>
+    <path d="M15 7v8l5 3" fill="none" stroke="white" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>`;
+  return L.divIcon({
+    html: svg,
+    iconSize: [30, 30],
+    iconAnchor: [15, 15],
+    popupAnchor: [0, -16],
+    className: '',
+  });
+}
+
 function FitBounds({ emergencies }: { emergencies: Emergency[] }) {
   const map = useMap();
   useEffect(() => {
@@ -46,9 +70,25 @@ function FitBounds({ emergencies }: { emergencies: Emergency[] }) {
   return <></>;
 }
 
+function FocusEmergency({ emergency }: { emergency: Emergency | null }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!emergency) return;
+    map.setView(
+      [emergency.currentLocation.coordinates[1], emergency.currentLocation.coordinates[0]],
+      15,
+    );
+  }, [emergency, map]);
+  return <></>;
+}
+
 export default function MapPage() {
+  const [searchParams] = useSearchParams();
+  const { stopEmergencyAlert } = useNotifications();
   const [selected, setSelected] = useState<Emergency | null>(null);
   const [emergencies, setEmergencies] = useState<Emergency[]>([]);
+  const [responders, setResponders] = useState<ResponderLiveLocation[]>([]);
+  const focusedEmergencyId = searchParams.get('emergencyId');
 
   const { data } = useQuery({
     queryKey: ['map-emergencies'],
@@ -62,6 +102,31 @@ export default function MapPage() {
   useEffect(() => {
     if (data) setEmergencies(data);
   }, [data]);
+
+  const { data: responderData } = useQuery({
+    queryKey: ['map-responders-live'],
+    queryFn: async () => {
+      const { data } = await api.get<{ data: ResponderLiveLocation[] }>('/responders/locations/live');
+      return data.data;
+    },
+    refetchInterval: 3_000,
+  });
+
+  useEffect(() => {
+    if (responderData) setResponders(responderData);
+  }, [responderData]);
+
+  useEffect(() => {
+    stopEmergencyAlert();
+  }, [stopEmergencyAlert]);
+
+  useEffect(() => {
+    if (!focusedEmergencyId) return;
+    const match = emergencies.find((em) => em._id === focusedEmergencyId);
+    if (!match) return;
+    setSelected(match);
+    stopEmergencyAlert(match._id);
+  }, [emergencies, focusedEmergencyId, stopEmergencyAlert]);
 
   useEffect(() => {
     const socket = getSocket();
@@ -98,6 +163,61 @@ export default function MapPage() {
     };
   }, []);
 
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket) return;
+
+    const upsertResponder = (payload: {
+      responderId: string;
+      name?: string;
+      agencyType?: string;
+      dutyStatus?: string;
+      coordinates?: [number, number];
+      accuracyMeters?: number;
+      capturedAt?: string;
+      currentLocation?: { latitude: number; longitude: number };
+      isVisibleOnMap?: boolean;
+    }) => {
+      const status = payload.dutyStatus;
+      const isVisible = payload.isVisibleOnMap ?? (!status || LIVE_RESPONDER_STATUSES.has(status));
+      if (!isVisible) {
+        setResponders((prev) => prev.filter((r) => r.responderId !== payload.responderId));
+        return;
+      }
+      const currentLocation =
+        payload.currentLocation ??
+        (payload.coordinates
+          ? { latitude: payload.coordinates[1], longitude: payload.coordinates[0] }
+          : undefined);
+      if (!currentLocation) return;
+      setResponders((prev) => {
+        const existing = prev.find((r) => r.responderId === payload.responderId);
+        const next: ResponderLiveLocation = {
+          responderId: payload.responderId,
+          name: payload.name ?? existing?.name ?? 'Responder',
+          agencyType: payload.agencyType ?? existing?.agencyType,
+          dutyStatus: status ?? existing?.dutyStatus ?? 'on_duty',
+          currentLocation,
+          lastSeen: payload.capturedAt ?? existing?.lastSeen,
+        };
+        const idx = prev.findIndex((r) => r.responderId === payload.responderId);
+        if (idx >= 0) {
+          const copy = [...prev];
+          copy[idx] = next;
+          return copy;
+        }
+        return [next, ...prev];
+      });
+    };
+
+    socket.on('location.responder_updated', upsertResponder);
+    socket.on('responder.status_updated', upsertResponder);
+    return () => {
+      socket.off('location.responder_updated', upsertResponder);
+      socket.off('responder.status_updated', upsertResponder);
+    };
+  }, []);
+
   return (
     <AdminShell title="Map Center">
       <div className="flex gap-4 -mt-2">
@@ -117,7 +237,12 @@ export default function MapPage() {
               key={em._id}
               position={[em.currentLocation.coordinates[1], em.currentLocation.coordinates[0]]}
               icon={em.source === 'iot_keychain' ? ICONS.iot : (ICONS[em.type] ?? ICONS.general_sos)}
-              eventHandlers={{ click: () => setSelected(em) }}
+              eventHandlers={{
+                click: () => {
+                  setSelected(em);
+                  stopEmergencyAlert(em._id);
+                },
+              }}
             >
               <Popup>
                 <div className="text-xs font-bold">{em.type.replace('_', ' ').toUpperCase()}</div>
@@ -125,7 +250,27 @@ export default function MapPage() {
               </Popup>
             </Marker>
           ))}
+          {responders
+            .filter((r) => r.currentLocation)
+            .map((responder) => (
+              <Marker
+                key={`responder-${responder.responderId}`}
+                position={[
+                  responder.currentLocation!.latitude,
+                  responder.currentLocation!.longitude,
+                ]}
+                icon={responderIcon(responder.dutyStatus)}
+              >
+                <Popup>
+                  <div className="text-xs font-bold">{responder.name}</div>
+                  <div className="text-xs text-gray-500">
+                    {(responder.agencyType ?? 'Responder').toUpperCase()} · {responder.dutyStatus ?? 'on duty'}
+                  </div>
+                </Popup>
+              </Marker>
+            ))}
           <FitBounds emergencies={emergencies} />
+          <FocusEmergency emergency={selected} />
           </MapContainer>
         </div>
 
@@ -149,21 +294,15 @@ export default function MapPage() {
               <StatusBadge status={selected.status} />
 
               {selected.outsideScopeFlag && (
-                <div className="bg-amber-50 border border-amber-200 text-amber-700 text-xs rounded-xl p-3 font-semibold">
-                  ⚠ Outside Tanza Municipality — Admin decision required
+                <div className="flex gap-2 bg-amber-50 border border-amber-200 text-amber-700 text-xs rounded-xl p-3 font-semibold">
+                  <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                  <span>Outside Tanza Municipality. Admin decision required.</span>
                 </div>
               )}
 
               {selected.userSnapshot && (
                 <div className="space-y-3 bg-slate-50 rounded-xl p-4">
                   <h3 className="font-bold text-slate-700 text-xs uppercase tracking-wide">Sender Details</h3>
-                  {selected.userSnapshot.faceCaptureFileId && (
-                    <AuthedImage
-                      fileId={selected.userSnapshot.faceCaptureFileId}
-                      alt="Sender face photo"
-                      className="w-full h-40 rounded-lg"
-                    />
-                  )}
                   <div className="space-y-2.5">
                     <Detail label="Name" value={selected.userSnapshot.fullName} />
                     <Detail label="Age" value={selected.userSnapshot.age?.toString()} />
@@ -190,6 +329,25 @@ export default function MapPage() {
                   </div>
                 </div>
               )}
+
+              <div className="space-y-3 bg-slate-50 rounded-xl p-4">
+                <h3 className="font-bold text-slate-700 text-xs uppercase tracking-wide flex items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5 text-blue-600" /> Sender Verification
+                </h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <VerificationPhoto
+                    label="Profile / Face Photo"
+                    fileId={selected.userSnapshot?.faceCaptureFileId}
+                  />
+                  <VerificationPhoto
+                    label="Valid ID"
+                    fileId={selected.userSnapshot?.proofOfResidencyFileId}
+                  />
+                </div>
+                <p className="text-[11px] leading-4 text-slate-500">
+                  Verification images are loaded through the protected admin file endpoint.
+                </p>
+              </div>
 
               <div className="space-y-2.5 bg-slate-50 rounded-xl p-4">
                 <h3 className="font-bold text-slate-700 text-xs uppercase tracking-wide">Current Location</h3>
@@ -226,6 +384,10 @@ export default function MapPage() {
           <div className="w-72 bg-white rounded-2xl border border-slate-200 overflow-y-auto flex-shrink-0" style={{ maxHeight: 'calc(100vh - 160px)' }}>
             <div className="px-5 py-4 border-b border-slate-100">
               <h2 className="font-bold text-slate-900 text-sm">Active Incidents ({emergencies.length})</h2>
+              <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-500">
+                <RadioTower className="h-3.5 w-3.5 text-blue-600" />
+                {responders.length} live responders
+              </p>
             </div>
             <div className="divide-y divide-slate-50">
               {emergencies.length === 0 ? (
@@ -233,7 +395,10 @@ export default function MapPage() {
               ) : emergencies.map((em) => (
                 <button
                   key={em._id}
-                  onClick={() => setSelected(em)}
+                  onClick={() => {
+                    setSelected(em);
+                    stopEmergencyAlert(em._id);
+                  }}
                   className="w-full text-left px-5 py-3.5 hover:bg-slate-50 transition-colors"
                 >
                   <TypeBadge type={em.type} source={em.source} />
@@ -254,6 +419,25 @@ function Detail({ label, value }: { label: string; value: string | undefined }) 
     <div className="flex gap-3">
       <span className="text-slate-400 text-xs w-28 flex-shrink-0">{label}</span>
       <span className="text-slate-800 text-xs font-medium flex-1 break-words">{value}</span>
+    </div>
+  );
+}
+
+function VerificationPhoto({ label, fileId }: { label: string; fileId?: string }) {
+  return (
+    <div className="space-y-2">
+      <AuthedImage
+        fileId={fileId}
+        alt={`${label} preview`}
+        emptyLabel="Not uploaded"
+        className="h-28 w-full rounded-lg"
+      />
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[11px] font-semibold text-slate-600">{label}</span>
+        <span className={`text-[10px] font-bold ${fileId ? 'text-green-700' : 'text-slate-400'}`}>
+          {fileId ? 'Available' : 'Missing'}
+        </span>
+      </div>
     </div>
   );
 }

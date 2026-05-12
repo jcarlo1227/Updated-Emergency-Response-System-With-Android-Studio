@@ -20,6 +20,9 @@ class StatusBadge extends StatelessWidget {
     return switch (status) {
       'pending' => const StatusBadge(label: 'PENDING', backgroundColor: Color(0xFFFEF3C7), textColor: AppColors.warningAmber),
       'assigned' => const StatusBadge(label: 'ASSIGNED'),
+      'submitted' => const StatusBadge(label: 'SUBMITTED', backgroundColor: AppColors.softBlue, textColor: AppColors.responderBlue),
+      'needs_update' => const StatusBadge(label: 'NEEDS UPDATE', backgroundColor: Color(0xFFFEF3C7), textColor: AppColors.warningAmber),
+      'accepted' => const StatusBadge(label: 'ACCEPTED', backgroundColor: Color(0xFFDCFCE7), textColor: AppColors.successGreen),
       'responder_on_the_way' => const StatusBadge(label: 'ON THE WAY', backgroundColor: AppColors.softBlue, textColor: AppColors.responderBlue),
       'resolved' => const StatusBadge(label: 'RESOLVED', backgroundColor: Color(0xFFDCFCE7), textColor: AppColors.successGreen),
       _ => StatusBadge(label: status.toUpperCase()),

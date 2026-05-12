@@ -27,6 +27,7 @@ export const registerResponderSchema = z
   .object({
     name: z.string().trim().min(2).max(120),
     email: z.string().trim().toLowerCase().email(),
+    phone: z.string().trim().min(7).max(20).optional(),
     password: z.string().min(8).max(200),
     badgeId: z.string().trim().min(2).max(80),
     department: z.enum(['police', 'medical', 'fire', 'rescue', 'barangay']),

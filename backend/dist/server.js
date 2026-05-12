@@ -6,12 +6,23 @@ import { createApp } from './app.js';
 import { seedAdmin } from './seed/admin.js';
 import { seedAmbulanceUnits } from './seed/ambulanceUnits.js';
 import { verifyAccessToken } from './modules/auth/jwt.js';
-function autoJoinRooms(socket, auth) {
+import { Responder } from './models/index.js';
+import { emergencyTypesForResponder } from './modules/emergencies/responderRoleAccess.js';
+async function autoJoinRooms(socket, auth) {
     const { accountId, role } = auth;
     if (role === 'user')
         socket.join(`user:${accountId}`);
-    if (role === 'responder')
+    if (role === 'responder') {
         socket.join(`responder:${accountId}`);
+        const responder = await Responder.findById(accountId)
+            .select('responderRole department agencyType')
+            .lean();
+        if (responder) {
+            for (const type of emergencyTypesForResponder(responder)) {
+                socket.join(`responder-feed:${type}`);
+            }
+        }
+    }
     if (role === 'admin')
         socket.join('admin:live');
 }
@@ -21,9 +32,16 @@ async function bootstrap() {
     await seedAmbulanceUnits();
     const app = createApp();
     const httpServer = createServer(app);
+    const localDevOrigins = [
+        'http://localhost:5173',
+        'http://127.0.0.1:5173',
+        'http://localhost:5174',
+        'http://127.0.0.1:5174',
+    ];
+    const socketCorsOrigins = Array.from(new Set([...env.CORS_ORIGINS, ...localDevOrigins]));
     const io = new Server(httpServer, {
         cors: {
-            origin: env.CORS_ORIGINS,
+            origin: socketCorsOrigins,
             methods: ['GET', 'POST', 'PATCH', 'DELETE'],
             credentials: true,
         },
@@ -49,8 +67,11 @@ async function bootstrap() {
     app.set('io', io);
     io.on('connection', (socket) => {
         const auth = socket.data.auth;
-        if (auth)
-            autoJoinRooms(socket, auth);
+        if (auth) {
+            autoJoinRooms(socket, auth).catch((err) => {
+                console.error('Failed to join socket rooms:', err);
+            });
+        }
         socket.on('join:emergency', (emergencyId) => {
             if (typeof emergencyId === 'string' && /^[a-f\d]{24}$/i.test(emergencyId)) {
                 socket.join(`emergency:${emergencyId}`);

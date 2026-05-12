@@ -15,6 +15,8 @@ const ROLE_TO_DEPARTMENT: Record<CreateResponderInput['responderRole'], 'police'
   general_responder: 'rescue',
 };
 
+const LIVE_DUTY_STATUSES = new Set(['available', 'busy', 'on_duty', 'responding']);
+
 function ageFromDob(dob: Date): number {
   const today = new Date();
   let age = today.getFullYear() - dob.getFullYear();
@@ -102,7 +104,7 @@ export async function createResponder(
         approvalStatus: 'approved',
         approvedAt: new Date(),
         approvedBy: adminObjectId,
-        isOnDuty: input.dutyStatus === 'available' || input.dutyStatus === 'busy',
+        isOnDuty: LIVE_DUTY_STATUSES.has(input.dutyStatus),
       });
       break;
     } catch (err) {

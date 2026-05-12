@@ -10,6 +10,8 @@ export type EmergencyEventName =
   | 'emergency.assigned'
   | 'emergency.responder_on_the_way'
   | 'emergency.responder_nearby'
+  | 'emergency.responder_report'
+  | 'emergency.update_requested'
   | 'emergency.resolved';
 
 export interface EmergencyEventPayload {
@@ -56,20 +58,23 @@ export function emitEmergencyEvent(
   emergency: IEmergency,
   extraRooms: string[] = [],
 ): void {
-  if (!io) return;
   const payload = buildPayload(emergency);
   const userRoom = `user:${emergency.userId.toString()}`;
   const adminRoom = 'admin:live';
   const emergencyRoom = `emergency:${docId(emergency)}`;
+  const responderFeedRoom = `responder-feed:${emergency.type}`;
 
-  io.to(adminRoom).emit(event, payload);
-  io.to(userRoom).emit(event, payload);
-  io.to(emergencyRoom).emit(event, payload);
-  if (emergency.assignedResponderId) {
-    io.to(`responder:${emergency.assignedResponderId.toString()}`).emit(event, payload);
-  }
-  for (const room of extraRooms) {
-    io.to(room).emit(event, payload);
+  if (io) {
+    io.to(adminRoom).emit(event, payload);
+    io.to(userRoom).emit(event, payload);
+    io.to(emergencyRoom).emit(event, payload);
+    io.to(responderFeedRoom).emit(event, payload);
+    if (emergency.assignedResponderId) {
+      io.to(`responder:${emergency.assignedResponderId.toString()}`).emit(event, payload);
+    }
+    for (const room of extraRooms) {
+      io.to(room).emit(event, payload);
+    }
   }
 
   void recordEmergencyNotification(emergency, event, io);

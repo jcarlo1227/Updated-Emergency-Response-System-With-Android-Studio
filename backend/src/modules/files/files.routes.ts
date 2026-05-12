@@ -6,6 +6,21 @@ import { getFileInfo, openDownloadStream } from './files.service.js';
 
 const router = Router();
 
+function canAccessFile(req: Request, info: Awaited<ReturnType<typeof getFileInfo>>): boolean {
+  if (!info || !req.auth) return false;
+  if (req.auth.role === 'admin') return true;
+
+  const metadata = info.metadata ?? {};
+  const sensitivePurpose = ['face_capture', 'proof_of_residency', 'valid_id', 'credential'].includes(
+    metadata.purpose ?? '',
+  );
+  if (!sensitivePurpose) return true;
+
+  if (!metadata.ownerId) return false;
+  if (metadata.ownerType !== req.auth.role) return false;
+  return metadata.ownerId === req.auth.accountId;
+}
+
 router.get(
   '/:id',
   authGuard,
@@ -18,6 +33,9 @@ router.get(
       const info = await getFileInfo(id);
       if (!info) {
         throw new AppError('File not found', 404, 'FILE_NOT_FOUND');
+      }
+      if (!canAccessFile(req, info)) {
+        throw new AppError('Forbidden', 403, 'FORBIDDEN');
       }
       res.setHeader('Content-Type', info.contentType);
       res.setHeader('Content-Length', String(info.length));

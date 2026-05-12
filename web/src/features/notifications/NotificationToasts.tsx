@@ -5,13 +5,36 @@ import { useNotifications } from './NotificationProvider';
 import type { AdminNotification } from './types';
 
 export function NotificationToasts() {
-  const { toasts, dismissToast, acknowledge } = useNotifications();
+  const {
+    toasts,
+    dismissToast,
+    acknowledge,
+    emergencyAudioBlocked,
+    retryEmergencyAudio,
+  } = useNotifications();
   const navigate = useNavigate();
 
-  if (toasts.length === 0) return null;
+  if (toasts.length === 0 && !emergencyAudioBlocked) return null;
 
   return (
     <div className="fixed top-4 right-4 z-[200] flex flex-col gap-3 w-[360px] max-w-[calc(100vw-32px)]">
+      {emergencyAudioBlocked && (
+        <div className="rounded-xl border border-red-300 bg-red-50 p-4 shadow-lg">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-red-600" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold text-slate-900">Emergency alert sound blocked</p>
+              <p className="mt-1 text-xs text-slate-700">Use the button to enable audio for active emergency alerts.</p>
+              <button
+                onClick={() => void retryEmergencyAudio()}
+                className="mt-3 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-red-700"
+              >
+                Enable Sound
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {toasts.map((n) => (
         <ToastCard
           key={n.id}
@@ -20,7 +43,7 @@ export function NotificationToasts() {
           onAck={() => acknowledge(n.id)}
           onAction={() => {
             if (n.type === 'emergency') {
-              navigate('/map');
+              navigate(n.requestId ? `/map?emergencyId=${encodeURIComponent(n.requestId)}` : '/map');
             } else if (n.type === 'ambulance') {
               navigate('/ambulance-requests');
             }

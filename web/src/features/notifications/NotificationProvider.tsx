@@ -9,9 +9,16 @@ import {
   type ReactNode,
 } from 'react';
 import { api } from '@/services/apiClient';
-import { getSocket } from '@/services/socketClient';
+import { connectSocket } from '@/services/socketClient';
 import { useAuth } from '@/features/auth/useAuth';
-import { playAlert } from './alertSound';
+import {
+  hasActiveEmergencyAlert,
+  playAlert,
+  retryEmergencyAlertAudio as retryEmergencyAlertAudioPlayback,
+  setEmergencyAlertBlockedHandler,
+  startEmergencyAlert,
+  stopEmergencyAlert as stopEmergencyAlertPlayback,
+} from './alertSound';
 import { loadNotifPrefs, subscribeNotifPrefs, type NotificationPrefs } from './prefs';
 import type { AdminNotification } from './types';
 
@@ -23,6 +30,9 @@ interface NotificationContextValue {
   acknowledge: (id: string) => Promise<void>;
   markAllRead: () => Promise<void>;
   refresh: () => Promise<void>;
+  emergencyAudioBlocked: boolean;
+  stopEmergencyAlert: (requestId?: string) => void;
+  retryEmergencyAudio: () => Promise<boolean>;
 }
 
 const NotificationContext = createContext<NotificationContextValue | null>(null);
@@ -36,6 +46,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   const [list, setList] = useState<AdminNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [toasts, setToasts] = useState<AdminNotification[]>([]);
+  const [emergencyAudioBlocked, setEmergencyAudioBlocked] = useState(false);
   const toastTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const prefsRef = useRef<NotificationPrefs>(loadNotifPrefs());
 
@@ -76,20 +87,37 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     }
   }, [isAdmin]);
 
+  const stopEmergencyAlert = useCallback((requestId?: string) => {
+    stopEmergencyAlertPlayback(requestId);
+    setEmergencyAudioBlocked(false);
+  }, []);
+
+  const retryEmergencyAudio = useCallback(async () => {
+    const played = await retryEmergencyAlertAudioPlayback();
+    setEmergencyAudioBlocked(!played && hasActiveEmergencyAlert());
+    return played;
+  }, []);
+
   const acknowledge = useCallback(
     async (id: string) => {
+      const notification = list.find((n) => n.id === id) ?? toasts.find((n) => n.id === id);
       try {
         await api.patch(`/admin/notifications/${id}/ack`);
         setList((prev) =>
           prev.map((n) => (n.id === id ? { ...n, status: 'acknowledged' } : n)),
         );
-        setUnreadCount((c) => Math.max(0, c - 1));
+        if (notification?.status === 'unread') {
+          setUnreadCount((c) => Math.max(0, c - 1));
+        }
       } catch {
         // ignore
       }
+      if (notification?.type === 'emergency') {
+        stopEmergencyAlert(notification.requestId ?? notification.id);
+      }
       dismissToast(id);
     },
-    [dismissToast],
+    [dismissToast, list, stopEmergencyAlert, toasts],
   );
 
   const markAllRead = useCallback(async () => {
@@ -99,16 +127,18 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         prev.map((n) => (n.status === 'unread' ? { ...n, status: 'read' } : n)),
       );
       setUnreadCount(0);
+      stopEmergencyAlert();
     } catch {
       // ignore
     }
-  }, []);
+  }, [stopEmergencyAlert]);
 
   useEffect(() => {
     if (!isAdmin) {
       setList([]);
       setUnreadCount(0);
       setToasts([]);
+      stopEmergencyAlert();
       return;
     }
     void refresh();
@@ -121,9 +151,15 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    setEmergencyAlertBlockedHandler((blocked) => {
+      setEmergencyAudioBlocked(blocked && hasActiveEmergencyAlert());
+    });
+    return () => setEmergencyAlertBlockedHandler(null);
+  }, []);
+
+  useEffect(() => {
     if (!isAdmin) return;
-    const socket = getSocket();
-    if (!socket) return;
+    const socket = connectSocket();
 
     const onCreated = (notif: AdminNotification) => {
       setList((prev) => {
@@ -140,7 +176,11 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         queueToast(notif);
       }
       if (prefs.soundEnabled && shouldSurface) {
-        playAlert(notif.priority);
+        if (notif.type === 'emergency') {
+          startEmergencyAlert(notif.requestId ?? notif.id, notif.priority);
+        } else {
+          void playAlert(notif.priority);
+        }
       }
       if (
         prefs.desktopNotifications &&
@@ -161,21 +201,56 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     };
 
     socket.on('admin_notification.created', onCreated);
+    socket.on('emergency.created', refresh);
+    socket.on('emergency.iot_keychain_created', refresh);
+    socket.on('emergency.assigned', refresh);
+    socket.on('emergency.resolved', refresh);
+    socket.on('emergency.responder_report', refresh);
+    socket.on('emergency.update_requested', refresh);
     return () => {
       socket.off('admin_notification.created', onCreated);
+      socket.off('emergency.created', refresh);
+      socket.off('emergency.iot_keychain_created', refresh);
+      socket.off('emergency.assigned', refresh);
+      socket.off('emergency.resolved', refresh);
+      socket.off('emergency.responder_report', refresh);
+      socket.off('emergency.update_requested', refresh);
     };
-  }, [isAdmin, queueToast]);
+  }, [isAdmin, queueToast, refresh]);
 
   useEffect(() => {
     return () => {
       Object.values(toastTimers.current).forEach(clearTimeout);
       toastTimers.current = {};
+      stopEmergencyAlertPlayback();
     };
   }, []);
 
   const value = useMemo<NotificationContextValue>(
-    () => ({ list, unreadCount, toasts, dismissToast, acknowledge, markAllRead, refresh }),
-    [list, unreadCount, toasts, dismissToast, acknowledge, markAllRead, refresh],
+    () => ({
+      list,
+      unreadCount,
+      toasts,
+      dismissToast,
+      acknowledge,
+      markAllRead,
+      refresh,
+      emergencyAudioBlocked,
+      stopEmergencyAlert,
+      retryEmergencyAudio,
+    }),
+    [
+      list,
+      unreadCount,
+      toasts,
+      dismissToast,
+      acknowledge,
+      markAllRead,
+      refresh,
+      emergencyAudioBlocked,
+      stopEmergencyAlert,
+      retryEmergencyAudio,
+    ],
   );
 
   return (

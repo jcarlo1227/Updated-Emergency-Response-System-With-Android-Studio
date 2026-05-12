@@ -7,6 +7,9 @@ export type DutyStatus =
   | 'on_duty'
   | 'busy'
   | 'available'
+  | 'responding'
+  | 'inactive'
+  | 'unavailable'
   | 'offline'
   | 'suspended';
 
@@ -138,6 +141,9 @@ const responderSchema = new Schema<IResponder>(
         'on_duty',
         'busy',
         'available',
+        'responding',
+        'inactive',
+        'unavailable',
         'offline',
         'suspended',
       ],

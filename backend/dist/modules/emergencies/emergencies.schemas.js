@@ -46,7 +46,16 @@ export const assignBodySchema = z
 })
     .strict();
 export const reportBodySchema = z
-    .object({ note: z.string().trim().min(1).max(1000) })
+    .object({
+    note: z.string().trim().min(1).max(1000),
+    reportType: z
+        .enum(['arrival', 'field_report', 'follow_up', 'resolution_request'])
+        .default('field_report'),
+    idempotencyKey: z.string().trim().min(8).max(120).optional(),
+})
+    .strict();
+export const requestUpdateBodySchema = z
+    .object({ message: z.string().trim().min(5).max(1000) })
     .strict();
 export const onTheWayBodySchema = z.object({}).strict();
 export const resolveBodySchema = z

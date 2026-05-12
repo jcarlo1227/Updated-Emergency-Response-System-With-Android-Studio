@@ -1,7 +1,20 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import { authGuard, roleGuard, validateRequest } from '../../shared/middleware/index.js';
 import { historyQuerySchema, idParamSchema, ingestLocationSchema, } from './locations.schemas.js';
 import * as svc from './locations.service.js';
+const dutyBodySchema = z.object({
+    status: z.enum([
+        'off_duty',
+        'on_duty',
+        'busy',
+        'available',
+        'responding',
+        'inactive',
+        'unavailable',
+        'offline',
+    ]),
+}).strict();
 export const locationsRouter = Router();
 export const emergencyHistoryRouter = Router();
 export const ambulanceHistoryRouter = Router();
@@ -57,6 +70,16 @@ ambulanceHistoryRouter.get('/:id/location-history', validateRequest({ params: id
 respondersLiveRouter.get('/locations/live', async (_req, res, next) => {
     try {
         const data = await svc.getRespondersLive();
+        res.json({ data });
+    }
+    catch (err) {
+        next(err);
+    }
+});
+respondersLiveRouter.post('/duty', roleGuard('responder'), validateRequest({ body: dutyBodySchema }), async (req, res, next) => {
+    try {
+        const { status } = req.validated.body;
+        const data = await svc.updateResponderDutyStatus(req.auth.accountId, status, ctx(req));
         res.json({ data });
     }
     catch (err) {

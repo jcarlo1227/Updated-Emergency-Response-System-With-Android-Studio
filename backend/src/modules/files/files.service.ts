@@ -51,9 +51,25 @@ export async function deleteFile(id: mongoose.Types.ObjectId | string): Promise<
   }
 }
 
+export async function updateFileOwner(
+  id: mongoose.Types.ObjectId | string,
+  ownerId: string,
+): Promise<void> {
+  const objectId = typeof id === 'string' ? new mongoose.Types.ObjectId(id) : id;
+  await getBucket().find({ _id: objectId }).limit(1).toArray();
+  await mongoose.connection.db
+    ?.collection(`${BUCKET_NAME}.files`)
+    .updateOne({ _id: objectId }, { $set: { 'metadata.ownerId': ownerId } });
+}
+
 export async function getFileInfo(
   id: mongoose.Types.ObjectId | string,
-): Promise<{ filename: string; contentType: string; length: number } | null> {
+): Promise<{
+  filename: string;
+  contentType: string;
+  length: number;
+  metadata: Partial<StoredFileMetadata>;
+} | null> {
   const objectId = typeof id === 'string' ? new mongoose.Types.ObjectId(id) : id;
   const cursor = getBucket().find({ _id: objectId }).limit(1);
   const docs = await cursor.toArray();
@@ -64,6 +80,7 @@ export async function getFileInfo(
     filename: doc.filename,
     contentType: meta.contentType ?? 'application/octet-stream',
     length: doc.length,
+    metadata: meta,
   };
 }
 

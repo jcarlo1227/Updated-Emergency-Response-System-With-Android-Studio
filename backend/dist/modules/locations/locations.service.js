@@ -1,6 +1,15 @@
 import mongoose from 'mongoose';
 import { Emergency, LocationSample, Responder, User, } from '../../models/index.js';
 import { AppError } from '../../shared/middleware/errorHandler.js';
+const LIVE_RESPONDER_STATUSES = new Set([
+    'on_duty',
+    'available',
+    'busy',
+    'responding',
+]);
+function isLiveResponderStatus(status) {
+    return LIVE_RESPONDER_STATUSES.has(status);
+}
 export async function ingestUserLocation(input, auth, ctx) {
     const sample = await LocationSample.create({
         actorId: new mongoose.Types.ObjectId(auth.accountId),
@@ -60,7 +69,7 @@ export async function ingestResponderLocation(input, auth, ctx) {
             ? new mongoose.Types.ObjectId(input.ambulanceRequestId)
             : undefined,
     });
-    await Responder.findByIdAndUpdate(auth.accountId, {
+    const responder = await Responder.findByIdAndUpdate(auth.accountId, {
         $set: {
             currentLocation: {
                 latitude: input.coordinates[1],
@@ -80,25 +89,33 @@ export async function ingestResponderLocation(input, auth, ctx) {
                 $slice: -100,
             },
         },
-    });
+    }, { new: true });
     ctx.io?.to('admin:live').emit('location.responder_updated', {
         responderId: auth.accountId,
+        name: responder?.name,
+        agencyType: responder?.agencyType,
+        dutyStatus: responder?.dutyStatus,
         coordinates: input.coordinates,
         accuracyMeters: input.accuracyMeters,
         capturedAt: input.capturedAt,
         emergencyId: input.emergencyId,
     });
     if (input.emergencyId) {
+        const emergency = await Emergency.findById(input.emergencyId)
+            .select('userId')
+            .lean();
         ctx.io?.to(`emergency:${input.emergencyId}`).emit('location.responder_updated', {
             responderId: auth.accountId,
             coordinates: input.coordinates,
             capturedAt: input.capturedAt,
         });
-        ctx.io?.to(`user:${auth.accountId}`).emit('location.responder_updated', {
-            responderId: auth.accountId,
-            coordinates: input.coordinates,
-            capturedAt: input.capturedAt,
-        });
+        if (emergency?.userId) {
+            ctx.io?.to(`user:${emergency.userId.toString()}`).emit('location.responder_updated', {
+                responderId: auth.accountId,
+                coordinates: input.coordinates,
+                capturedAt: input.capturedAt,
+            });
+        }
     }
     return sample;
 }
@@ -139,7 +156,7 @@ export async function getAmbulanceLocationHistory(requestId, query, auth) {
 export async function getRespondersLive() {
     const responders = await Responder.find({
         isApproved: true,
-        dutyStatus: { $in: ['on_duty', 'busy'] },
+        dutyStatus: { $in: [...LIVE_RESPONDER_STATUSES] },
         currentLocation: { $exists: true },
     })
         .select('_id name agencyType dutyStatus currentLocation locationHistory')
@@ -152,4 +169,25 @@ export async function getRespondersLive() {
         currentLocation: r.currentLocation,
         lastSeen: r.locationHistory.at(-1)?.capturedAt,
     }));
+}
+export async function updateResponderDutyStatus(responderId, status, ctx) {
+    const updated = await Responder.findByIdAndUpdate(responderId, {
+        $set: {
+            dutyStatus: status,
+            isOnDuty: isLiveResponderStatus(status),
+        },
+    }, { new: true }).lean();
+    if (!updated)
+        throw new AppError('Responder not found', 404, 'NOT_FOUND');
+    const payload = {
+        responderId,
+        name: updated.name,
+        agencyType: updated.agencyType,
+        dutyStatus: updated.dutyStatus,
+        isVisibleOnMap: isLiveResponderStatus(updated.dutyStatus) && !!updated.currentLocation,
+        currentLocation: updated.currentLocation,
+        lastSeen: updated.locationHistory.at(-1)?.capturedAt,
+    };
+    ctx.io?.to('admin:live').emit('responder.status_updated', payload);
+    return { dutyStatus: updated.dutyStatus };
 }

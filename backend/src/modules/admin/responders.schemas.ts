@@ -12,6 +12,9 @@ export const RESPONDER_ROLES = [
 export const DUTY_STATUSES = [
   'available',
   'busy',
+  'responding',
+  'inactive',
+  'unavailable',
   'offline',
   'suspended',
 ] as const;

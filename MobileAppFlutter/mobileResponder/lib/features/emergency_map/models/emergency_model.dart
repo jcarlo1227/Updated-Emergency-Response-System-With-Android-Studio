@@ -17,6 +17,7 @@ class EmergencyModel {
   final String? bleEventId;
   final String? sourceDeviceId;
   final int? deviceBatteryAtTrigger;
+  final List<EmergencyTimelineEvent> timeline;
 
   const EmergencyModel({
     required this.id,
@@ -37,13 +38,17 @@ class EmergencyModel {
     this.bleEventId,
     this.sourceDeviceId,
     this.deviceBatteryAtTrigger,
+    this.timeline = const [],
   });
 
   factory EmergencyModel.fromJson(Map<String, dynamic> json) {
-    final loc = json['currentLocation'] as Map<String, dynamic>?;
+    // Handles both REST response format (_id/currentLocation) and
+    // socket event format (emergencyId/location).
+    final loc = json['currentLocation'] as Map<String, dynamic>?
+             ?? json['location'] as Map<String, dynamic>?;
     final coords = loc?['coordinates'] as List?;
     return EmergencyModel(
-      id: json['_id'] as String? ?? json['id'] as String? ?? '',
+      id: json['_id'] as String? ?? json['id'] as String? ?? json['emergencyId'] as String? ?? '',
       type: json['type'] as String? ?? '',
       source: json['source'] as String? ?? 'mobile_app',
       priority: json['priority'] as String? ?? 'medium',
@@ -61,6 +66,10 @@ class EmergencyModel {
       bleEventId: json['bleEventId'] as String?,
       sourceDeviceId: json['sourceDeviceId'] as String?,
       deviceBatteryAtTrigger: json['deviceBatteryAtTrigger'] as int?,
+      timeline: (json['timeline'] as List? ?? [])
+          .whereType<Map<String, dynamic>>()
+          .map(EmergencyTimelineEvent.fromJson)
+          .toList(),
     );
   }
 
@@ -75,4 +84,33 @@ class EmergencyModel {
     'general_sos' => 'SOS',
     _ => type,
   };
+}
+
+class EmergencyTimelineEvent {
+  final String event;
+  final DateTime at;
+  final String? actorRole;
+  final String? note;
+  final String? reportType;
+  final String? reportStatus;
+
+  const EmergencyTimelineEvent({
+    required this.event,
+    required this.at,
+    this.actorRole,
+    this.note,
+    this.reportType,
+    this.reportStatus,
+  });
+
+  factory EmergencyTimelineEvent.fromJson(Map<String, dynamic> json) {
+    return EmergencyTimelineEvent(
+      event: json['event'] as String? ?? '',
+      at: json['at'] != null ? DateTime.tryParse(json['at'] as String) ?? DateTime.now() : DateTime.now(),
+      actorRole: json['actorRole'] as String?,
+      note: json['note'] as String?,
+      reportType: json['reportType'] as String?,
+      reportStatus: json['reportStatus'] as String?,
+    );
+  }
 }

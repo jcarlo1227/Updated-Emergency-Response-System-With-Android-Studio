@@ -1,5 +1,11 @@
 export { User, type IUser, type IEmbeddedContact, type ILocationHistoryPoint, type ApprovalStatus } from './User.js';
-export { Responder, type IResponder, type AgencyType, type DutyStatus } from './Responder.js';
+export {
+  Responder,
+  type IResponder,
+  type AgencyType,
+  type DutyStatus,
+  type ResponderRole,
+} from './Responder.js';
 export { Alert, type IAlert } from './Alert.js';
 export { Contact, type IContact } from './Contact.js';
 export { Emergency, type IEmergency, type EmergencyType, type EmergencySource, type EmergencyPriority, type EmergencyStatus } from './Emergency.js';

@@ -64,6 +64,7 @@ export async function createRequest(input, auth, ctx) {
         age: user.age,
         dateOfBirth: user.dateOfBirth,
         bloodType: user.bloodType,
+        validIdFileId: user.proofOfResidencyFileId,
         faceCaptureFileId: user.faceCaptureFileId,
         proofOfResidencyFileId: user.proofOfResidencyFileId,
         municipality: user.municipality ?? 'Tanza',
@@ -119,21 +120,44 @@ export async function listMine(args, auth) {
             .sort({ createdAt: -1 })
             .skip(skip)
             .limit(args.limit)
+            .populate({
+            path: 'assignedAmbulanceUnitId',
+            select: 'unitNumber unitName plateNumber',
+        })
             .lean(),
         AmbulanceTransportRequest.countDocuments(filter),
     ]);
     return { items, total, page: args.page, limit: args.limit };
 }
 export async function getOne(id, auth) {
-    const doc = await AmbulanceTransportRequest.findById(id).lean();
+    const doc = await AmbulanceTransportRequest.findById(id)
+        .populate({
+        path: 'assignedAmbulanceUnitId',
+        select: 'unitNumber unitName plateNumber availabilityStatus',
+    })
+        .populate({
+        path: 'assignedResponderId',
+        select: 'name phone responderRole department',
+    })
+        .lean();
     if (!doc)
         throw new AppError('Request not found', 404, 'NOT_FOUND');
-    if (auth.role === 'user' && doc.senderUserId.toString() !== auth.accountId) {
+    const senderId = typeof doc.senderUserId === 'object' && doc.senderUserId !== null
+        ? doc.senderUserId.toString()
+        : String(doc.senderUserId);
+    if (auth.role === 'user' && senderId !== auth.accountId) {
         throw new AppError('Forbidden', 403, 'FORBIDDEN');
     }
-    if (auth.role === 'responder' &&
-        doc.assignedResponderId?.toString() !== auth.accountId) {
-        throw new AppError('Forbidden', 403, 'FORBIDDEN');
+    if (auth.role === 'responder') {
+        const responderRef = doc.assignedResponderId;
+        const responderId = responderRef && typeof responderRef === 'object'
+            ? responderRef._id?.toString()
+            : responderRef
+                ? String(responderRef)
+                : undefined;
+        if (responderId !== auth.accountId) {
+            throw new AppError('Forbidden', 403, 'FORBIDDEN');
+        }
     }
     return doc;
 }
@@ -169,10 +193,52 @@ export async function cancel(id, body, auth, ctx) {
     emitAmbulanceEvent(ctx.io, 'ambulance_request.cancelled', doc);
     return doc;
 }
+const REJECTED_VISIBILITY_DAYS = 31;
+const ASSIGNABLE_RESPONDER_DUTY_STATUSES = new Set(['on_duty', 'available']);
+const BLOCKED_RESPONDER_DUTY_STATUSES = new Set([
+    'off_duty',
+    'busy',
+    'offline',
+    'suspended',
+    'inactive',
+    'unavailable',
+    'rejected',
+    'pending',
+    'not_approved',
+]);
+function assertResponderAssignable(responder) {
+    if (!responder.isApproved || responder.approvalStatus !== 'approved') {
+        throw new AppError('Responder not approved', 409, 'RESPONDER_NOT_APPROVED');
+    }
+    const dutyStatus = String(responder.dutyStatus ?? '').toLowerCase();
+    const isActiveDuty = responder.isOnDuty === true || ASSIGNABLE_RESPONDER_DUTY_STATUSES.has(dutyStatus);
+    if (!isActiveDuty || BLOCKED_RESPONDER_DUTY_STATUSES.has(dutyStatus)) {
+        throw new AppError('Selected responder is not currently active or available', 409, 'RESPONDER_NOT_AVAILABLE');
+    }
+}
 export async function listAdmin(args) {
     const filter = args.status === 'all' ? {} : { status: args.status };
     if (args.requestType)
         filter.requestType = args.requestType;
+    // PRD §6.3: hide rejected ambulance requests older than 31 days from the
+    // default admin table; the rows stay in the database for audit. Admin can
+    // opt in to viewing them with `includeArchived=true`.
+    if (!args.includeArchived) {
+        const cutoff = new Date(Date.now() - REJECTED_VISIBILITY_DAYS * 24 * 60 * 60 * 1000);
+        if (args.status === 'rejected') {
+            filter.$or = [
+                { reviewedAt: { $gte: cutoff } },
+                { reviewedAt: { $exists: false } },
+            ];
+        }
+        else if (args.status === 'all') {
+            filter.$or = [
+                { status: { $ne: 'rejected' } },
+                { reviewedAt: { $gte: cutoff } },
+                { status: 'rejected', reviewedAt: { $exists: false } },
+            ];
+        }
+    }
     const skip = (args.page - 1) * args.limit;
     const [items, total] = await Promise.all([
         AmbulanceTransportRequest.find(filter)
@@ -260,9 +326,7 @@ export async function assign(id, body, auth, ctx) {
     const responder = await Responder.findById(body.responderId);
     if (!responder)
         throw new AppError('Responder not found', 404, 'NOT_FOUND');
-    if (!responder.isApproved) {
-        throw new AppError('Responder not approved', 409, 'RESPONDER_NOT_APPROVED');
-    }
+    assertResponderAssignable(responder);
     let reservedFrom;
     let reservedUntil;
     if (doc.requestType === 'emergency') {
@@ -372,6 +436,55 @@ export const setOnTheWay = (id, body, auth, ctx) => responderTransition(id, 'on_
 export const setArrivedPickup = (id, body, auth, ctx) => responderTransition(id, 'arrived_pickup', 'on_the_way', 'ambulance_request.arrived_pickup', body, auth, ctx);
 export const setPatientOnboard = (id, body, auth, ctx) => responderTransition(id, 'patient_onboard', 'arrived_pickup', 'ambulance_request.patient_onboard', body, auth, ctx);
 export const complete = (id, body, auth, ctx) => responderTransition(id, 'completed', 'patient_onboard', 'ambulance_request.completed', body, auth, ctx);
+async function adminTransition(id, targetStatus, fromStatuses, eventName, note, auth, ctx) {
+    if (auth.role !== 'admin') {
+        throw new AppError('Admin only', 403, 'FORBIDDEN');
+    }
+    const doc = await AmbulanceTransportRequest.findById(id);
+    if (!doc)
+        throw new AppError('Request not found', 404, 'NOT_FOUND');
+    if (!fromStatuses.includes(doc.status)) {
+        throw new AppError(`Cannot transition from '${doc.status}' to '${targetStatus}'`, 409, 'INVALID_TRANSITION');
+    }
+    doc.status = targetStatus;
+    doc.timeline.push({
+        event: targetStatus,
+        at: new Date(),
+        actorId: new mongoose.Types.ObjectId(auth.accountId),
+        actorRole: 'admin',
+        note,
+    });
+    await doc.save();
+    if (targetStatus === 'completed' && doc.assignedAmbulanceUnitId) {
+        await AmbulanceUnit.findByIdAndUpdate(doc.assignedAmbulanceUnitId, {
+            availabilityStatus: 'available',
+            $unset: {
+                assignedResponderId: 1,
+                activeRequestId: 1,
+                assignmentStartAt: 1,
+                assignmentEndAt: 1,
+            },
+        });
+        ctx.io?.to('admin:live').emit('ambulance_availability.updated', {
+            unitId: doc.assignedAmbulanceUnitId.toString(),
+            status: 'available',
+            occurredAt: new Date().toISOString(),
+        });
+    }
+    await audit({
+        actorId: auth.accountId,
+        actorRole: 'admin',
+        action: `ambulance_request.${targetStatus}`,
+        targetId: doc._id,
+        meta: note ? { note } : undefined,
+        ctx,
+    });
+    emitAmbulanceEvent(ctx.io, eventName, doc);
+    return doc;
+}
+export const adminMarkOnTheWay = (id, note, auth, ctx) => adminTransition(id, 'on_the_way', ['assigned'], 'ambulance_request.on_the_way', note, auth, ctx);
+export const adminMarkPickedUp = (id, note, auth, ctx) => adminTransition(id, 'patient_onboard', ['assigned', 'on_the_way', 'arrived_pickup'], 'ambulance_request.patient_onboard', note, auth, ctx);
+export const adminMarkCompleted = (id, note, auth, ctx) => adminTransition(id, 'completed', ['assigned', 'on_the_way', 'arrived_pickup', 'patient_onboard'], 'ambulance_request.completed', note, auth, ctx);
 export async function getAvailableUnitsForAdmin(query) {
     let startAt = query.startAt ? new Date(query.startAt) : new Date();
     let endAt = query.endAt ? new Date(query.endAt) : new Date(startAt.getTime() + 4 * 60 * 60 * 1000);

@@ -1,8 +1,8 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/networking/api_client.dart';
-import '../../../core/networking/api_exception.dart';
 import '../../../core/storage/secure_storage.dart';
 import '../models/responder_model.dart';
 
@@ -38,17 +38,28 @@ class AuthRepository {
   Future<ResponderModel> registerResponder({
     required String name, required String email, required String password,
     required String badgeId, required String department,
-    String? agencyType, String? stationName, String? position, String? coverageArea,
+    String? phone, String? agencyType, String? stationName,
+    String? position, String? coverageArea,
+    File? faceFile, File? credFile,
   }) async {
     try {
-      final response = await _dio.post('/auth/register/responder', data: {
-        'name': name.trim(), 'email': email.trim().toLowerCase(), 'password': password,
-        'badgeId': badgeId.trim(), 'department': department,
+      final formData = FormData.fromMap({
+        'name': name.trim(),
+        'email': email.trim().toLowerCase(),
+        'password': password,
+        'badgeId': badgeId.trim(),
+        'department': department,
+        if (phone != null && phone.trim().isNotEmpty) 'phone': phone.trim(),
         if (agencyType != null) 'agencyType': agencyType,
         if (stationName != null) 'stationName': stationName,
         if (position != null) 'position': position,
         if (coverageArea != null) 'coverageArea': coverageArea,
+        if (faceFile != null)
+          'faceCapture': await MultipartFile.fromFile(faceFile.path, filename: 'face.jpg'),
+        if (credFile != null)
+          'credential': await MultipartFile.fromFile(credFile.path, filename: 'credential.jpg'),
       });
+      final response = await _dio.post('/auth/register/responder', data: formData);
       final data = (response.data as Map<String, dynamic>)['data'] as Map<String, dynamic>;
       return ResponderModel.fromJson(data);
     } on DioException catch (e) { throw dioErrorToApiException(e); }

@@ -8,6 +8,7 @@ import {
   User,
   type IAmbulanceTransportRequest,
   type IAmbulanceUnit,
+  type IResponder,
 } from '../../models/index.js';
 import { AppError } from '../../shared/middleware/errorHandler.js';
 import { tanzaScope } from '../../shared/utils/tanza.js';
@@ -119,6 +120,7 @@ export async function createRequest(
     age: user.age,
     dateOfBirth: user.dateOfBirth,
     bloodType: user.bloodType,
+    validIdFileId: user.proofOfResidencyFileId,
     faceCaptureFileId: user.faceCaptureFileId,
     proofOfResidencyFileId: user.proofOfResidencyFileId,
     municipality: user.municipality ?? 'Tanza',
@@ -263,6 +265,37 @@ export async function cancel(
 
 const REJECTED_VISIBILITY_DAYS = 31;
 
+const ASSIGNABLE_RESPONDER_DUTY_STATUSES = new Set(['on_duty', 'available']);
+const BLOCKED_RESPONDER_DUTY_STATUSES = new Set([
+  'off_duty',
+  'busy',
+  'offline',
+  'suspended',
+  'inactive',
+  'unavailable',
+  'rejected',
+  'pending',
+  'not_approved',
+]);
+
+function assertResponderAssignable(responder: IResponder): void {
+  if (!responder.isApproved || responder.approvalStatus !== 'approved') {
+    throw new AppError('Responder not approved', 409, 'RESPONDER_NOT_APPROVED');
+  }
+
+  const dutyStatus = String(responder.dutyStatus ?? '').toLowerCase();
+  const isActiveDuty =
+    responder.isOnDuty === true || ASSIGNABLE_RESPONDER_DUTY_STATUSES.has(dutyStatus);
+
+  if (!isActiveDuty || BLOCKED_RESPONDER_DUTY_STATUSES.has(dutyStatus)) {
+    throw new AppError(
+      'Selected responder is not currently active or available',
+      409,
+      'RESPONDER_NOT_AVAILABLE',
+    );
+  }
+}
+
 export async function listAdmin(args: ListAdminQuery) {
   const filter: Record<string, unknown> =
     args.status === 'all' ? {} : { status: args.status };
@@ -389,9 +422,7 @@ export async function assign(
 
   const responder = await Responder.findById(body.responderId);
   if (!responder) throw new AppError('Responder not found', 404, 'NOT_FOUND');
-  if (!responder.isApproved) {
-    throw new AppError('Responder not approved', 409, 'RESPONDER_NOT_APPROVED');
-  }
+  assertResponderAssignable(responder);
 
   let reservedFrom: Date;
   let reservedUntil: Date;

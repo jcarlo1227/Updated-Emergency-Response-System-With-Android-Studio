@@ -1,28 +1,90 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:hive/hive.dart';
+
 import '../models/emergency_model.dart';
 import '../repository/emergency_repository.dart';
 import '../../../core/networking/api_exception.dart';
 import '../../../core/services/offline_sync_service.dart';
 
 sealed class EmergencyState {}
+
 class EmergencyIdle extends EmergencyState {}
+
 class EmergencyCreating extends EmergencyState {}
+
 class EmergencyQueued extends EmergencyState {}
+
 class EmergencyActive extends EmergencyState {
   final EmergencyModel emergency;
   EmergencyActive(this.emergency);
 }
+
 class EmergencyError extends EmergencyState {
   final String message;
   EmergencyError(this.message);
 }
 
 class EmergencyNotifier extends StateNotifier<EmergencyState> {
+  static const _activeEmergencyCacheKey = 'active_emergency';
+
   final EmergencyRepository _repo;
   final OfflineSyncService _syncService;
+  final Box<String> _activeEmergencyBox;
 
-  EmergencyNotifier(this._repo, this._syncService) : super(EmergencyIdle());
+  EmergencyNotifier(this._repo, this._syncService, this._activeEmergencyBox)
+    : super(_initialState(_activeEmergencyBox));
+
+  static EmergencyState _initialState(Box<String> box) {
+    final raw = box.get(_activeEmergencyCacheKey);
+    if (raw == null) return EmergencyIdle();
+    try {
+      final emergency = EmergencyModel.fromJson(
+        jsonDecode(raw) as Map<String, dynamic>,
+      );
+      return emergency.isActive ? EmergencyActive(emergency) : EmergencyIdle();
+    } catch (_) {
+      return EmergencyIdle();
+    }
+  }
+
+  Future<void> loadActiveEmergency() async {
+    try {
+      final emergency = await _repo.getCurrentActiveEmergency();
+      if (emergency == null) {
+        if (state is! EmergencyQueued) reset();
+        return;
+      }
+      setActive(emergency);
+    } catch (_) {
+      // Keep the cached active emergency visible when the network is unavailable.
+    }
+  }
+
+  Future<void> refreshEmergency(String emergencyId, {String? status}) async {
+    final current = state is EmergencyActive
+        ? (state as EmergencyActive).emergency
+        : null;
+
+    if (_isTerminalStatus(status)) {
+      if (current?.id == emergencyId) reset();
+      return;
+    }
+
+    try {
+      final emergency = await _repo.getEmergency(emergencyId);
+      if (emergency.isActive) {
+        setActive(emergency);
+      } else if (current?.id == emergencyId) {
+        reset();
+      }
+    } catch (_) {
+      await loadActiveEmergency();
+    }
+  }
 
   Future<EmergencyModel?> createEmergency({
     required String type,
@@ -38,7 +100,7 @@ class EmergencyNotifier extends StateNotifier<EmergencyState> {
         barangay: barangay,
         notes: notes,
       );
-      state = EmergencyActive(em);
+      setActive(em);
       return em;
     } on ApiException catch (e) {
       if (e.statusCode == null) {
@@ -54,7 +116,9 @@ class EmergencyNotifier extends StateNotifier<EmergencyState> {
       state = EmergencyError(e.message);
       return null;
     } catch (_) {
-      state = EmergencyError('Failed to send emergency. Check your connection.');
+      state = EmergencyError(
+        'Failed to send emergency. Check your connection.',
+      );
       return null;
     }
   }
@@ -77,7 +141,7 @@ class EmergencyNotifier extends StateNotifier<EmergencyState> {
         deviceBattery: deviceBattery,
         barangay: barangay,
       );
-      state = EmergencyActive(em);
+      setActive(em);
       return em;
     } on ApiException catch (e) {
       if (e.statusCode == null) {
@@ -100,16 +164,38 @@ class EmergencyNotifier extends StateNotifier<EmergencyState> {
     }
   }
 
-  void setActive(EmergencyModel em) => state = EmergencyActive(em);
-  void reset() => state = EmergencyIdle();
+  void setActive(EmergencyModel em) {
+    if (!em.isActive) {
+      reset();
+      return;
+    }
+    unawaited(
+      _activeEmergencyBox.put(
+        _activeEmergencyCacheKey,
+        jsonEncode(em.toJson()),
+      ),
+    );
+    state = EmergencyActive(em);
+  }
+
+  void reset() {
+    unawaited(_activeEmergencyBox.delete(_activeEmergencyCacheKey));
+    state = EmergencyIdle();
+  }
+
+  static bool _isTerminalStatus(String? status) {
+    return status == 'resolved' || status == 'cancelled';
+  }
 }
 
-final emergencyProvider = StateNotifierProvider<EmergencyNotifier, EmergencyState>(
-  (ref) => EmergencyNotifier(
-    ref.read(emergencyRepositoryProvider),
-    ref.read(offlineSyncServiceProvider),
-  ),
-);
+final emergencyProvider =
+    StateNotifierProvider<EmergencyNotifier, EmergencyState>(
+      (ref) => EmergencyNotifier(
+        ref.read(emergencyRepositoryProvider),
+        ref.read(offlineSyncServiceProvider),
+        Hive.box<String>('active_emergency'),
+      ),
+    );
 
 final myEmergenciesProvider = FutureProvider<List<EmergencyModel>>((ref) {
   return ref.read(emergencyRepositoryProvider).getMyEmergencies();

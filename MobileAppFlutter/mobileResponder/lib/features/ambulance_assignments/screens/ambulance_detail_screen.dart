@@ -3,9 +3,9 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
-import '../../../../core/theme/app_colors.dart';
-import '../../../../core/widgets/app_button.dart';
-import '../../../../core/widgets/status_badge.dart';
+import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/app_button.dart';
+import '../../../core/widgets/status_badge.dart';
 import '../models/ambulance_request_model.dart';
 import '../repository/ambulance_repository.dart';
 import '../../location_sharing/service/location_service.dart';
@@ -21,15 +21,25 @@ class _AmbulanceDetailScreenState extends ConsumerState<AmbulanceDetailScreen> {
   AmbulanceRequestModel? _req;
   bool _loading = true;
   String? _actionError;
+  bool _broadcastStarted = false;
 
   @override
   void initState() { super.initState(); _load(); }
+
+  @override
+  void dispose() {
+    if (_broadcastStarted) {
+      ref.read(locationServiceProvider).stopBroadcast();
+    }
+    super.dispose();
+  }
 
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
       final list = await ref.read(ambulanceRepositoryProvider).getMyAssigned();
-      final req = list.firstWhere((r) => r.id == widget.requestId, orElse: () => list.first);
+      final idx = list.indexWhere((r) => r.id == widget.requestId);
+      final req = idx >= 0 ? list[idx] : null;
       setState(() { _req = req; _loading = false; });
     } catch (_) { setState(() => _loading = false); }
   }
@@ -48,6 +58,11 @@ class _AmbulanceDetailScreenState extends ConsumerState<AmbulanceDetailScreen> {
     final req = _req;
     return Scaffold(
       appBar: AppBar(
+        leading: IconButton(
+          tooltip: 'Back',
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => context.canPop() ? context.pop() : context.go('/ambulance'),
+        ),
         title: Text(req?.displayType ?? 'Assignment'),
         actions: req != null ? [Padding(padding: const EdgeInsets.only(right: 12), child: StatusBadge.fromStatus(req.status))] : null,
       ),
@@ -115,6 +130,7 @@ class _AmbulanceDetailScreenState extends ConsumerState<AmbulanceDetailScreen> {
                             const SizedBox(height: 24),
                             _ActionButtons(req: req, onAction: _action, onNavigate: (lat, lng, label) {
                               ref.read(locationServiceProvider).startBroadcast(ambulanceRequestId: req.id);
+                              setState(() => _broadcastStarted = true);
                               context.push('/route', extra: {'lat': lat, 'lng': lng, 'label': label});
                             }),
                             const SizedBox(height: 32),
@@ -136,7 +152,6 @@ class _ActionButtons extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final repo = context.mounted ? null : null;
     return Column(children: [
       AppButton(
         label: 'Navigate to Pickup',

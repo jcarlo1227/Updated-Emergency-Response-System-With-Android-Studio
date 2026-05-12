@@ -1,7 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/networking/api_client.dart';
-import '../../../core/networking/api_exception.dart';
 import '../models/ambulance_request_model.dart';
 
 final ambulanceRepositoryProvider = Provider<AmbulanceRepository>((ref) => AmbulanceRepository(ref.read(dioProvider)));

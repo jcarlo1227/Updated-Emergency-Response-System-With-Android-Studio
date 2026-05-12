@@ -18,6 +18,8 @@ export interface ITimelineEvent {
   actorId?: mongoose.Types.ObjectId;
   actorRole?: 'user' | 'responder' | 'admin' | 'system';
   note?: string;
+  reportType?: 'arrival' | 'field_report' | 'follow_up' | 'resolution_request';
+  reportStatus?: 'submitted' | 'reviewed' | 'needs_update' | 'accepted';
 }
 
 export interface IEmergencyUserSnapshot {
@@ -26,6 +28,7 @@ export interface IEmergencyUserSnapshot {
   dateOfBirth?: Date;
   phone?: string;
   faceCaptureFileId?: mongoose.Types.ObjectId;
+  proofOfResidencyFileId?: mongoose.Types.ObjectId;
   bloodType?: string;
   streetAddress?: string;
   barangay?: string;
@@ -72,7 +75,15 @@ const timelineEventSchema = new Schema<ITimelineEvent>(
     at: { type: Date, required: true, default: Date.now },
     actorId: { type: Schema.Types.ObjectId },
     actorRole: { type: String, enum: ['user', 'responder', 'admin', 'system'] },
-    note: { type: String, trim: true, maxlength: 500 },
+    note: { type: String, trim: true, maxlength: 1000 },
+    reportType: {
+      type: String,
+      enum: ['arrival', 'field_report', 'follow_up', 'resolution_request'],
+    },
+    reportStatus: {
+      type: String,
+      enum: ['submitted', 'reviewed', 'needs_update', 'accepted'],
+    },
   },
   { _id: true },
 );
@@ -84,6 +95,7 @@ const userSnapshotSchema = new Schema<IEmergencyUserSnapshot>(
     dateOfBirth: { type: Date },
     phone: { type: String, trim: true, maxlength: 20 },
     faceCaptureFileId: { type: Schema.Types.ObjectId },
+    proofOfResidencyFileId: { type: Schema.Types.ObjectId },
     bloodType: { type: String, trim: true, maxlength: 8 },
     streetAddress: { type: String, trim: true, maxlength: 250 },
     barangay: { type: String, trim: true, maxlength: 120 },

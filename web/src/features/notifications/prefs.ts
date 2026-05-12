@@ -33,11 +33,13 @@ export function saveNotifPrefs(prefs: NotificationPrefs): void {
 
 export function subscribeNotifPrefs(cb: (prefs: NotificationPrefs) => void): () => void {
   const handler = () => cb(loadNotifPrefs());
-  window.addEventListener(CHANGE_EVENT, handler);
-  window.addEventListener('storage', (e) => {
+  const storageHandler = (e: StorageEvent) => {
     if (e.key === STORAGE_KEY) handler();
-  });
+  };
+  window.addEventListener(CHANGE_EVENT, handler);
+  window.addEventListener('storage', storageHandler);
   return () => {
     window.removeEventListener(CHANGE_EVENT, handler);
+    window.removeEventListener('storage', storageHandler);
   };
 }

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { adminActionLimiter, authGuard, roleGuard, validateRequest, } from '../../shared/middleware/index.js';
-import { approveBodySchema, assignBodySchema, availableUnitsQuerySchema, idParamSchema, listAdminQuerySchema, rejectBodySchema, } from './ambulance.schemas.js';
+import { approveBodySchema, assignBodySchema, availableUnitsQuerySchema, idParamSchema, listAdminQuerySchema, rejectBodySchema, responderUpdateBodySchema, } from './ambulance.schemas.js';
 import * as svc from './ambulance.service.js';
 const router = Router();
 router.use(authGuard, roleGuard('admin'), adminActionLimiter);
@@ -68,4 +68,24 @@ router.post('/:id/assign', validateRequest({ params: idParamSchema, body: assign
         next(err);
     }
 });
+const noteValidate = validateRequest({
+    params: idParamSchema,
+    body: responderUpdateBodySchema,
+});
+function adminTransitionHandler(fn) {
+    return async (req, res, next) => {
+        try {
+            const id = req.validated.params.id;
+            const body = req.validated.body;
+            const data = await fn(id, body.note, req.auth, ctx(req));
+            res.json({ data });
+        }
+        catch (err) {
+            next(err);
+        }
+    };
+}
+router.post('/:id/mark-on-the-way', noteValidate, adminTransitionHandler(svc.adminMarkOnTheWay));
+router.post('/:id/mark-picked-up', noteValidate, adminTransitionHandler(svc.adminMarkPickedUp));
+router.post('/:id/mark-completed', noteValidate, adminTransitionHandler(svc.adminMarkCompleted));
 export default router;

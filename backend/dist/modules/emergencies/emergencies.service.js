@@ -3,6 +3,7 @@ import { AuditLog, Emergency, Responder, User, } from '../../models/index.js';
 import { AppError } from '../../shared/middleware/errorHandler.js';
 import { tanzaScope } from '../../shared/utils/tanza.js';
 import { emitEmergencyEvent } from './events.js';
+import { canResponderHandleEmergency, emergencyTypesForResponder, } from './responderRoleAccess.js';
 export function priorityFor(type) {
     switch (type) {
         case 'medical':
@@ -21,8 +22,14 @@ export async function snapshotUser(userId) {
     return {
         fullName: u.name,
         age: u.age,
+        dateOfBirth: u.dateOfBirth,
+        phone: u.phone,
         faceCaptureFileId: u.faceCaptureFileId,
+        proofOfResidencyFileId: u.proofOfResidencyFileId,
         bloodType: u.bloodType,
+        streetAddress: u.streetAddress,
+        barangay: u.barangay,
+        municipality: u.municipality,
         emergencyContactName: u.emergencyContactName ?? primary?.name,
         emergencyContactNumber: u.emergencyContactNumber ?? primary?.phone,
     };
@@ -83,6 +90,27 @@ const ACTIVE_STATUSES = [
     'responder_nearby',
     'arrived',
 ];
+async function setResponderDutyForEmergency(responderId, dutyStatus, ctx) {
+    if (!responderId)
+        return;
+    const responder = await Responder.findByIdAndUpdate(responderId, {
+        $set: {
+            dutyStatus,
+            isOnDuty: true,
+        },
+    }, { new: true }).lean();
+    if (!responder)
+        return;
+    ctx.io?.to('admin:live').emit('responder.status_updated', {
+        responderId,
+        name: responder.name,
+        agencyType: responder.agencyType,
+        dutyStatus: responder.dutyStatus,
+        isVisibleOnMap: !!responder.currentLocation,
+        currentLocation: responder.currentLocation,
+        lastSeen: responder.locationHistory.at(-1)?.capturedAt,
+    });
+}
 export async function listActive(args, auth) {
     if (auth.role === 'user') {
         throw new AppError('Forbidden', 403, 'FORBIDDEN');
@@ -90,6 +118,18 @@ export async function listActive(args, auth) {
     const filter = { status: { $in: ACTIVE_STATUSES } };
     if (args.type)
         filter.type = args.type;
+    if (auth.role === 'responder') {
+        const responder = await Responder.findById(auth.accountId)
+            .select('responderRole department agencyType')
+            .lean();
+        if (!responder)
+            throw new AppError('Responder not found', 404, 'NOT_FOUND');
+        const allowedTypes = emergencyTypesForResponder(responder);
+        filter.$or = [
+            { assignedResponderId: new mongoose.Types.ObjectId(auth.accountId) },
+            { type: { $in: allowedTypes } },
+        ];
+    }
     const skip = (args.page - 1) * args.limit;
     const [items, total] = await Promise.all([
         Emergency.find(filter).sort({ priority: -1, createdAt: -1 }).skip(skip).limit(args.limit).lean(),
@@ -121,6 +161,14 @@ async function loadAccessible(id, auth) {
         const isOpen = ACTIVE_STATUSES.includes(doc.status);
         if (!isAssigned && !isOpen) {
             throw new AppError('Forbidden', 403, 'FORBIDDEN');
+        }
+        if (!isAssigned) {
+            const responder = await Responder.findById(auth.accountId)
+                .select('responderRole department agencyType')
+                .lean();
+            if (!responder || !canResponderHandleEmergency(responder, doc.type)) {
+                throw new AppError('Emergency is outside responder role', 403, 'OUT_OF_ROLE');
+            }
         }
     }
     return doc;
@@ -192,6 +240,10 @@ export async function assign(id, body, auth, ctx) {
     if (responder.approvalStatus !== 'approved' || !responder.isApproved) {
         throw new AppError('Responder not approved', 409, 'RESPONDER_NOT_APPROVED');
     }
+    if (auth.role === 'responder' &&
+        !canResponderHandleEmergency(responder, doc.type)) {
+        throw new AppError('Emergency is outside your responder role', 403, 'OUT_OF_ROLE');
+    }
     doc.status = 'assigned';
     doc.assignedResponderId = responder._id;
     doc.timeline.push({
@@ -213,6 +265,7 @@ export async function assign(id, body, auth, ctx) {
         userAgent: ctx.userAgent,
     });
     emitEmergencyEvent(ctx.io, 'emergency.assigned', doc);
+    await setResponderDutyForEmergency(responderId, 'busy', ctx);
     return doc;
 }
 export async function setOnTheWay(id, auth, ctx) {
@@ -247,6 +300,7 @@ export async function setOnTheWay(id, auth, ctx) {
         userAgent: ctx.userAgent,
     });
     emitEmergencyEvent(ctx.io, 'emergency.responder_on_the_way', doc);
+    await setResponderDutyForEmergency(auth.accountId, 'responding', ctx);
     return doc;
 }
 export async function report(id, body, auth, ctx) {
@@ -259,13 +313,36 @@ export async function report(id, body, auth, ctx) {
     if (doc.assignedResponderId?.toString() !== auth.accountId) {
         throw new AppError('Not your assignment', 403, 'FORBIDDEN');
     }
+    if (doc.status === 'resolved' || doc.status === 'cancelled') {
+        throw new AppError('Cannot file a report on a closed emergency', 409, 'INVALID_TRANSITION');
+    }
+    const responderObjectId = new mongoose.Types.ObjectId(auth.accountId);
+    const recentDuplicate = [...doc.timeline].reverse().find((event) => {
+        if (event.event !== 'responder_report')
+            return false;
+        if (event.actorId?.toString() !== auth.accountId)
+            return false;
+        if (event.note !== body.note)
+            return false;
+        return Date.now() - new Date(event.at).getTime() < 10_000;
+    });
+    if (recentDuplicate) {
+        return doc;
+    }
     doc.timeline.push({
         event: 'responder_report',
         at: new Date(),
-        actorId: new mongoose.Types.ObjectId(auth.accountId),
+        actorId: responderObjectId,
         actorRole: 'responder',
         note: body.note,
+        reportType: body.reportType,
+        reportStatus: 'submitted',
     });
+    const pendingRequest = [...doc.timeline].reverse().find((event) => event.event === 'admin_update_requested' &&
+        event.reportStatus === 'needs_update' &&
+        event.actorRole === 'admin');
+    if (pendingRequest)
+        pendingRequest.reportStatus = 'accepted';
     await doc.save();
     await AuditLog.create({
         actorId: new mongoose.Types.ObjectId(auth.accountId),
@@ -273,12 +350,49 @@ export async function report(id, body, auth, ctx) {
         action: 'emergency.report_filed',
         targetType: 'emergency',
         targetId: doc._id,
-        meta: { length: body.note.length },
+        meta: { length: body.note.length, reportType: body.reportType },
         requestId: ctx.requestId,
         ip: ctx.ip,
         userAgent: ctx.userAgent,
     });
-    emitEmergencyEvent(ctx.io, 'emergency.updated', doc);
+    emitEmergencyEvent(ctx.io, 'emergency.responder_report', doc);
+    return doc;
+}
+export async function requestUpdate(id, body, auth, ctx) {
+    if (auth.role !== 'admin') {
+        throw new AppError('Only admin can request updates', 403, 'FORBIDDEN');
+    }
+    const doc = await Emergency.findById(id);
+    if (!doc)
+        throw new AppError('Emergency not found', 404, 'NOT_FOUND');
+    if (doc.status === 'resolved' || doc.status === 'cancelled') {
+        throw new AppError('Cannot request an update on a closed emergency', 409, 'INVALID_TRANSITION');
+    }
+    if (!doc.assignedResponderId) {
+        throw new AppError('Assign a responder before requesting an update', 409, 'NO_ASSIGNED_RESPONDER');
+    }
+    doc.timeline.push({
+        event: 'admin_update_requested',
+        at: new Date(),
+        actorId: new mongoose.Types.ObjectId(auth.accountId),
+        actorRole: 'admin',
+        note: body.message,
+        reportType: 'follow_up',
+        reportStatus: 'needs_update',
+    });
+    await doc.save();
+    await AuditLog.create({
+        actorId: new mongoose.Types.ObjectId(auth.accountId),
+        actorRole: 'admin',
+        action: 'emergency.update_requested',
+        targetType: 'emergency',
+        targetId: doc._id,
+        meta: { responderId: doc.assignedResponderId.toString(), messageLength: body.message.length },
+        requestId: ctx.requestId,
+        ip: ctx.ip,
+        userAgent: ctx.userAgent,
+    });
+    emitEmergencyEvent(ctx.io, 'emergency.update_requested', doc);
     return doc;
 }
 export async function resolve(id, body, auth, ctx) {
@@ -314,5 +428,6 @@ export async function resolve(id, body, auth, ctx) {
         userAgent: ctx.userAgent,
     });
     emitEmergencyEvent(ctx.io, 'emergency.resolved', doc);
+    await setResponderDutyForEmergency(doc.assignedResponderId?.toString(), 'available', ctx);
     return doc;
 }

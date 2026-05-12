@@ -36,6 +36,13 @@ interface AuthResult {
     name?: string;
     approvalStatus?: 'pending' | 'approved' | 'rejected';
     isApproved?: boolean;
+    responderRole?: string;
+    department?: string;
+    agencyType?: string;
+    stationName?: string;
+    position?: string;
+    coverageArea?: string;
+    dutyStatus?: string;
   };
 }
 
@@ -129,6 +136,10 @@ export async function registerUser(
     await filesService.deleteFile(proofFileId);
     throw err;
   }
+  await Promise.all([
+    filesService.updateFileOwner(faceFileId, user.id),
+    filesService.updateFileOwner(proofFileId, user.id),
+  ]);
 
   const accessToken = signAccessToken({
     sub: user.id,
@@ -151,9 +162,15 @@ export async function registerUser(
   };
 }
 
+export interface RegisterResponderFiles {
+  faceCapture?: Express.Multer.File;
+  credential?: Express.Multer.File;
+}
+
 export async function registerResponder(
   input: RegisterResponderInput,
   req: Request,
+  files?: RegisterResponderFiles,
 ): Promise<AuthResult> {
   const existing = await Responder.findOne({
     $or: [{ email: input.email }, { badgeId: input.badgeId }],
@@ -165,19 +182,59 @@ export async function registerResponder(
       'RESPONDER_TAKEN',
     );
   }
+
+  let faceCaptureFileId: Awaited<ReturnType<typeof filesService.uploadBuffer>> | undefined;
+  let credentialFileId: Awaited<ReturnType<typeof filesService.uploadBuffer>> | undefined;
+
+  if (files?.faceCapture) {
+    faceCaptureFileId = await filesService.uploadBuffer(
+      files.faceCapture.buffer,
+      files.faceCapture.originalname || 'face.jpg',
+      files.faceCapture.mimetype,
+      { ownerType: 'responder', purpose: 'face_capture' },
+    );
+  }
+  if (files?.credential) {
+    try {
+      credentialFileId = await filesService.uploadBuffer(
+        files.credential.buffer,
+        files.credential.originalname || 'credential.jpg',
+        files.credential.mimetype,
+        { ownerType: 'responder', purpose: 'credential' },
+      );
+    } catch (err) {
+      if (faceCaptureFileId) await filesService.deleteFile(faceCaptureFileId);
+      throw err;
+    }
+  }
+
   const hashed = await bcrypt.hash(input.password, SALT_ROUNDS);
-  const responder = await Responder.create({
-    name: input.name,
-    email: input.email,
-    password: hashed,
-    badgeId: input.badgeId,
-    department: input.department,
-    agencyType: input.agencyType,
-    stationName: input.stationName,
-    position: input.position,
-    coverageArea: input.coverageArea,
-    isOnDuty: false,
-  });
+  let responder;
+  try {
+    responder = await Responder.create({
+      name: input.name,
+      email: input.email,
+      phone: input.phone,
+      password: hashed,
+      badgeId: input.badgeId,
+      department: input.department,
+      agencyType: input.agencyType,
+      stationName: input.stationName,
+      position: input.position,
+      coverageArea: input.coverageArea,
+      faceCaptureFileId,
+      credentialFileId,
+      isOnDuty: false,
+    });
+  } catch (err) {
+    if (faceCaptureFileId) await filesService.deleteFile(faceCaptureFileId);
+    if (credentialFileId) await filesService.deleteFile(credentialFileId);
+    throw err;
+  }
+  await Promise.all([
+    faceCaptureFileId ? filesService.updateFileOwner(faceCaptureFileId, responder.id) : undefined,
+    credentialFileId ? filesService.updateFileOwner(credentialFileId, responder.id) : undefined,
+  ]);
 
   const accessToken = signAccessToken({
     sub: responder.id,
@@ -200,6 +257,13 @@ export async function registerResponder(
       name: responder.name,
       approvalStatus: responder.approvalStatus,
       isApproved: responder.isApproved,
+      responderRole: responder.responderRole,
+      department: responder.department,
+      agencyType: responder.agencyType,
+      stationName: responder.stationName,
+      position: responder.position,
+      coverageArea: responder.coverageArea,
+      dutyStatus: responder.dutyStatus,
     },
   };
 }
@@ -306,6 +370,13 @@ export async function login(input: LoginInput, req: Request): Promise<AuthResult
           name: responder.name,
           approvalStatus: responder.approvalStatus,
           isApproved: responder.isApproved,
+          responderRole: responder.responderRole,
+          department: responder.department,
+          agencyType: responder.agencyType,
+          stationName: responder.stationName,
+          position: responder.position,
+          coverageArea: responder.coverageArea,
+          dutyStatus: responder.dutyStatus,
         },
       };
     }
@@ -337,6 +408,7 @@ export async function refresh(
 
   let email: string;
   let name: string | undefined;
+  const responderAccount: Partial<AuthResult['account']> = {};
   if (role === 'user') {
     const u = await User.findById(accountId);
     if (!u) throw new AppError('Account not found', 401, 'ACCOUNT_GONE');
@@ -353,6 +425,15 @@ export async function refresh(
     }
     email = r.email;
     name = r.name;
+    Object.assign(responderAccount, {
+      responderRole: r.responderRole,
+      department: r.department,
+      agencyType: r.agencyType,
+      stationName: r.stationName,
+      position: r.position,
+      coverageArea: r.coverageArea,
+      dutyStatus: r.dutyStatus,
+    });
   } else {
     const a = await Admin.findById(accountId);
     if (!a) throw new AppError('Account not found', 401, 'ACCOUNT_GONE');
@@ -380,7 +461,7 @@ export async function refresh(
   return {
     accessToken,
     refreshToken: minted.token,
-    account: { id: accountId, email, role, name },
+    account: { id: accountId, email, role, name, ...responderAccount },
   };
 }
 

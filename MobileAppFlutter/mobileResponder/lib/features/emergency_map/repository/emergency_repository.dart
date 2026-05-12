@@ -1,7 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/networking/api_client.dart';
-import '../../../core/networking/api_exception.dart';
 import '../models/emergency_model.dart';
 
 final emergencyRepositoryProvider = Provider<EmergencyRepository>((ref) => EmergencyRepository(ref.read(dioProvider)));
@@ -40,9 +39,13 @@ class EmergencyRepository {
     } on DioException catch (e) { throw dioErrorToApiException(e); }
   }
 
-  Future<void> submitReport(String id, String note) async {
+  Future<void> submitReport(String id, String note, {String reportType = 'field_report'}) async {
     try {
-      await _dio.post('/emergencies/$id/report', data: {'note': note});
+      await _dio.post('/emergencies/$id/report', data: {
+        'note': note,
+        'reportType': reportType,
+        'idempotencyKey': '${DateTime.now().millisecondsSinceEpoch}-$id',
+      });
     } on DioException catch (e) { throw dioErrorToApiException(e); }
   }
 }

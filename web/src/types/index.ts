@@ -55,7 +55,12 @@ export type DutyStatus =
   | 'busy'
   | 'available'
   | 'offline'
-  | 'suspended';
+  | 'suspended'
+  | 'inactive'
+  | 'unavailable'
+  | 'rejected'
+  | 'pending'
+  | 'not_approved';
 
 export interface ResponderRegistration {
   _id: string;
@@ -77,6 +82,8 @@ export interface ResponderRegistration {
   position?: string;
   coverageArea?: string;
   dutyStatus?: DutyStatus;
+  isOnDuty?: boolean;
+  currentLocation?: { latitude: number; longitude: number };
   faceCaptureFileId?: string;
   credentialFileId?: string;
   rejectionReason?: string;
@@ -107,6 +114,7 @@ export interface UserSnapshot {
   dateOfBirth?: string;
   phone?: string;
   faceCaptureFileId?: string;
+  proofOfResidencyFileId?: string;
   bloodType?: string;
   streetAddress?: string;
   barangay?: string;
@@ -128,6 +136,8 @@ export interface TimelineEvent {
   actorId?: string;
   actorRole?: string;
   note?: string;
+  reportType?: 'arrival' | 'field_report' | 'follow_up' | 'resolution_request';
+  reportStatus?: 'submitted' | 'reviewed' | 'needs_update' | 'accepted';
 }
 
 export interface Emergency {
@@ -209,6 +219,7 @@ export interface SenderSnapshot {
   municipality?: string;
   barangay?: string;
   proofOfIndigencyFileId?: string;
+  validIdFileId?: string;
   faceCaptureFileId?: string;
   proofOfResidencyFileId?: string;
 }

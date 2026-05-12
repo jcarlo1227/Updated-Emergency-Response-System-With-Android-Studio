@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, MapPin, CheckCircle } from 'lucide-react';
+import { AlertTriangle, MapPin, CheckCircle, FileText, MessageSquare } from 'lucide-react';
 import { AdminShell } from '@/components/layout/AdminShell';
 import { StatusBadge, TypeBadge, PriorityBadge } from '@/components/ui/Badge';
 import { TableSkeleton } from '@/components/ui/Skeleton';
@@ -17,7 +17,10 @@ export default function IncidentsPage() {
   const qc = useQueryClient();
   const [filter, setFilter] = useState<Filter>('all');
   const [resolveModal, setResolveModal] = useState<{ open: boolean; id: string; type: string } | null>(null);
+  const [reviewIncident, setReviewIncident] = useState<Emergency | null>(null);
+  const [updateModal, setUpdateModal] = useState<{ open: boolean; id: string } | null>(null);
   const [resolveNotes, setResolveNotes] = useState('');
+  const [updateMessage, setUpdateMessage] = useState('');
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['active-emergencies-full', filter],
@@ -38,11 +41,15 @@ export default function IncidentsPage() {
     const handler = () => void refetch();
     socket.on('emergency.created', handler);
     socket.on('emergency.updated', handler);
+    socket.on('emergency.responder_report', handler);
+    socket.on('emergency.update_requested', handler);
     socket.on('emergency.resolved', handler);
     socket.on('emergency.iot_keychain_created', handler);
     return () => {
       socket.off('emergency.created', handler);
       socket.off('emergency.updated', handler);
+      socket.off('emergency.responder_report', handler);
+      socket.off('emergency.update_requested', handler);
       socket.off('emergency.resolved', handler);
       socket.off('emergency.iot_keychain_created', handler);
     };
@@ -54,8 +61,25 @@ export default function IncidentsPage() {
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['active-emergencies-full'] });
+      setReviewIncident(null);
       setResolveModal(null);
       setResolveNotes('');
+    },
+  });
+
+  const requestUpdateMutation = useMutation({
+    mutationFn: async ({ id, message }: { id: string; message: string }) => {
+      const { data } = await api.post<{ data: Emergency }>(
+        `/admin/emergencies/${id}/request-update`,
+        { message },
+      );
+      return data.data;
+    },
+    onSuccess: (updated) => {
+      void qc.invalidateQueries({ queryKey: ['active-emergencies-full'] });
+      setReviewIncident(updated);
+      setUpdateModal(null);
+      setUpdateMessage('');
     },
   });
 
@@ -97,6 +121,7 @@ export default function IncidentsPage() {
                     <th className="px-6 py-3 text-left">Location</th>
                     <th className="px-6 py-3 text-left">Scope</th>
                     <th className="px-6 py-3 text-left">Status</th>
+                    <th className="px-6 py-3 text-left">Reports</th>
                     <th className="px-6 py-3 text-left">Time</th>
                     <th className="px-6 py-3 text-left">Actions</th>
                   </tr>
@@ -128,19 +153,26 @@ export default function IncidentsPage() {
                       </td>
                       <td className="px-6 py-4">
                         {em.outsideScopeFlag ? (
-                          <span className="text-amber-600 text-xs font-bold">⚠ Outside</span>
+                          <span className="inline-flex items-center gap-1 text-amber-600 text-xs font-bold">
+                            <AlertTriangle className="w-3.5 h-3.5" /> Outside
+                          </span>
                         ) : (
-                          <span className="text-green-600 text-xs font-bold">✓ Tanza</span>
+                          <span className="inline-flex items-center gap-1 text-green-600 text-xs font-bold">
+                            <CheckCircle className="w-3.5 h-3.5" /> Tanza
+                          </span>
                         )}
                       </td>
                       <td className="px-6 py-4"><StatusBadge status={em.status} /></td>
+                      <td className="px-6 py-4">
+                        <ReportSummary emergency={em} />
+                      </td>
                       <td className="px-6 py-4 text-slate-500 text-xs">{fmt(em.createdAt)}</td>
                       <td className="px-6 py-4">
                         <button
-                          onClick={() => setResolveModal({ open: true, id: em._id, type: em.type })}
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-green-50 text-green-700 border border-green-200 rounded-lg text-xs font-semibold hover:bg-green-100 transition-colors"
+                          onClick={() => setReviewIncident(em)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0F172A] text-white rounded-lg text-xs font-semibold hover:bg-slate-700 transition-colors"
                         >
-                          <CheckCircle className="w-3.5 h-3.5" /> Resolve
+                          <FileText className="w-3.5 h-3.5" /> Review
                         </button>
                       </td>
                     </tr>
@@ -151,6 +183,85 @@ export default function IncidentsPage() {
           )}
         </div>
       </div>
+
+      <Modal
+        open={!!reviewIncident}
+        onClose={() => setReviewIncident(null)}
+        title="Incident Review"
+        className="max-w-3xl"
+      >
+        {reviewIncident && (
+          <div className="space-y-5">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <TypeBadge type={reviewIncident.type} source={reviewIncident.source} />
+                <PriorityBadge priority={reviewIncident.priority} />
+                <StatusBadge status={reviewIncident.status} />
+              </div>
+              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                <ReviewRow label="Sender" value={reviewIncident.userSnapshot?.fullName} />
+                <ReviewRow label="Location" value={reviewIncident.barangay ?? 'Tanza'} />
+                <ReviewRow label="Reported" value={fmt(reviewIncident.createdAt)} />
+                <ReviewRow label="Responder" value={reviewIncident.assignedResponderId ? 'Assigned' : 'Unassigned'} />
+              </dl>
+            </div>
+
+            <div>
+              <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-slate-900">
+                <FileText className="h-4 w-4 text-blue-600" /> Responder Reports
+              </h3>
+              <ResponderReports emergency={reviewIncident} />
+            </div>
+
+            <div className="flex flex-wrap justify-end gap-3 border-t border-slate-100 pt-4">
+              <button
+                onClick={() => setUpdateModal({ open: true, id: reviewIncident._id })}
+                disabled={!reviewIncident.assignedResponderId || requestUpdateMutation.isPending}
+                className="inline-flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-bold text-amber-700 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <MessageSquare className="h-4 w-4" /> Ask for Update
+              </button>
+              <button
+                onClick={() => setResolveModal({ open: true, id: reviewIncident._id, type: reviewIncident.type })}
+                disabled={resolveMutation.isPending}
+                className="inline-flex items-center gap-2 rounded-xl bg-green-600 px-4 py-2 text-sm font-bold text-white hover:bg-green-700 disabled:opacity-50"
+              >
+                <CheckCircle className="h-4 w-4" /> Mark as Resolved
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        open={updateModal?.open ?? false}
+        onClose={() => setUpdateModal(null)}
+        title="Ask Responder for Update"
+      >
+        <p className="text-slate-600 text-sm mb-4">
+          Write a clear request. The assigned responder will see it in the incident details.
+        </p>
+        <label className="block text-sm font-medium text-slate-700 mb-1.5">Update request message</label>
+        <textarea
+          value={updateMessage}
+          onChange={(e) => setUpdateMessage(e.target.value)}
+          rows={4}
+          className="mb-4 w-full resize-none rounded-xl border border-slate-300 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          placeholder="Example: Please confirm patient status and whether transport is needed."
+        />
+        <div className="flex justify-end gap-3">
+          <button onClick={() => setUpdateModal(null)} className="px-4 py-2 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50">
+            Cancel
+          </button>
+          <button
+            onClick={() => updateModal && requestUpdateMutation.mutate({ id: updateModal.id, message: updateMessage.trim() })}
+            disabled={updateMessage.trim().length < 5 || requestUpdateMutation.isPending}
+            className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-bold disabled:opacity-50"
+          >
+            {requestUpdateMutation.isPending ? 'Sending...' : 'Send Request'}
+          </button>
+        </div>
+      </Modal>
 
       <Modal
         open={resolveModal?.open ?? false}
@@ -184,5 +295,84 @@ export default function IncidentsPage() {
         </div>
       </Modal>
     </AdminShell>
+  );
+}
+
+function reportEvents(emergency: Emergency) {
+  return [...(emergency.timeline ?? [])]
+    .filter((event) => event.event === 'responder_report')
+    .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+}
+
+function updateRequests(emergency: Emergency) {
+  return [...(emergency.timeline ?? [])]
+    .filter((event) => event.event === 'admin_update_requested')
+    .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+}
+
+function ReportSummary({ emergency }: { emergency: Emergency }) {
+  const reports = reportEvents(emergency);
+  const pendingUpdate = updateRequests(emergency).find((event) => event.reportStatus === 'needs_update');
+  if (reports.length === 0 && !pendingUpdate) {
+    return <span className="text-xs text-slate-400">No reports</span>;
+  }
+  return (
+    <div className="flex flex-col gap-1">
+      {reports.length > 0 && (
+        <span className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700">
+          <FileText className="h-3.5 w-3.5" /> {reports.length} submitted
+        </span>
+      )}
+      {pendingUpdate && <StatusBadge status="needs_update" />}
+    </div>
+  );
+}
+
+function ResponderReports({ emergency }: { emergency: Emergency }) {
+  const reports = reportEvents(emergency);
+  const requests = updateRequests(emergency);
+  if (reports.length === 0 && requests.length === 0) {
+    return (
+      <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-slate-500">
+        No responder reports or admin update requests have been recorded yet.
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-3">
+      {requests.map((request) => (
+        <div key={`${request.at}-${request.note}`} className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <span className="inline-flex items-center gap-2 text-sm font-bold text-amber-800">
+              <MessageSquare className="h-4 w-4" /> Admin Update Request
+            </span>
+            <StatusBadge status={request.reportStatus ?? 'needs_update'} />
+          </div>
+          <p className="whitespace-pre-wrap text-sm leading-6 text-amber-900">{request.note}</p>
+          <p className="mt-2 text-xs text-amber-700">{fmt(request.at)}</p>
+        </div>
+      ))}
+      {reports.map((report) => (
+        <div key={`${report.at}-${report.note}`} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <span className="inline-flex items-center gap-2 text-sm font-bold text-slate-900">
+              <FileText className="h-4 w-4 text-blue-600" /> Responder Field Report
+            </span>
+            <StatusBadge status={report.reportStatus ?? 'submitted'} />
+          </div>
+          <p className="whitespace-pre-wrap text-sm leading-6 text-slate-700">{report.note}</p>
+          <p className="mt-2 text-xs text-slate-500">{fmt(report.at)}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ReviewRow({ label, value }: { label: string; value?: string }) {
+  return (
+    <div>
+      <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</dt>
+      <dd className="mt-1 text-sm font-semibold text-slate-800">{value || 'Not available'}</dd>
+    </div>
   );
 }
