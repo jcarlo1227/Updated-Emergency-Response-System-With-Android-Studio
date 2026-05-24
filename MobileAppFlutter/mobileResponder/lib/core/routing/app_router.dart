@@ -31,19 +31,19 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       return null;
     },
     routes: [
-      GoRoute(path: '/splash', builder: (_, __) => const SplashScreen()),
-      GoRoute(path: '/login', builder: (_, __) => const LoginScreen()),
-      GoRoute(path: '/register', builder: (_, __) => const RegistrationScreen()),
-      GoRoute(path: '/pending', builder: (_, __) => const PendingApprovalScreen()),
-      GoRoute(path: '/duty', builder: (_, __) => const DutyStatusScreen()),
+      GoRoute(path: '/splash', builder: (_, _) => const SplashScreen()),
+      GoRoute(path: '/login', builder: (_, _) => const LoginScreen()),
+      GoRoute(path: '/register', builder: (_, _) => const RegistrationScreen()),
+      GoRoute(path: '/pending', builder: (_, _) => const PendingApprovalScreen()),
+      GoRoute(path: '/duty', builder: (_, _) => const DutyStatusScreen()),
       GoRoute(
         path: '/map',
-        builder: (_, __) => const EmergencyMapScreen(),
+        builder: (_, _) => const EmergencyMapScreen(),
         routes: [
           GoRoute(path: 'report/:id', builder: (_, s) => ReportFormScreen(emergencyId: s.pathParameters['id']!)),
         ],
       ),
-      GoRoute(path: '/ambulance', builder: (_, __) => const AmbulanceListScreen()),
+      GoRoute(path: '/ambulance', builder: (_, _) => const AmbulanceListScreen()),
       GoRoute(path: '/ambulance/:id', builder: (_, s) => AmbulanceDetailScreen(requestId: s.pathParameters['id']!)),
       GoRoute(path: '/route', builder: (_, s) {
         final extra = s.extra as Map<String, dynamic>? ?? {};
@@ -53,7 +53,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           label: extra['label'] as String? ?? 'Destination',
         );
       }),
-      GoRoute(path: '/settings', builder: (_, __) => const SettingsScreen()),
+      GoRoute(path: '/settings', builder: (_, _) => const SettingsScreen()),
     ],
     errorBuilder: (_, state) => Scaffold(body: Center(child: Text('Not found: ${state.error}'))),
   );

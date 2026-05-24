@@ -35,8 +35,9 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
   Widget build(BuildContext context) {
     ref.listen(authStateProvider, (_, next) {
       if (!mounted) return;
-      if (next is AuthAuthenticated) context.go('/home');
-      else if (next is AuthPending) context.go('/pending');
+      if (next is AuthAuthenticated) {
+        context.go('/home');
+      } else if (next is AuthPending) context.go('/pending');
       else if (next is AuthUnauthenticated) context.go('/login');
     });
 

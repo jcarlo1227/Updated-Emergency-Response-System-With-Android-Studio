@@ -55,7 +55,7 @@ class EmergencyModel {
       status: json['status'] as String? ?? 'pending',
       lat: coords != null && coords.length >= 2 ? (coords[1] as num).toDouble() : 14.355,
       lng: coords != null && coords.isNotEmpty ? (coords[0] as num).toDouble() : 120.885,
-      accuracyMeters: loc?['accuracyMeters'] as double?,
+      accuracyMeters: (loc?['accuracyMeters'] as num?)?.toDouble(),
       isInsideTanza: json['isInsideTanza'] as bool? ?? true,
       outsideScopeFlag: json['outsideScopeFlag'] as bool? ?? false,
       barangay: json['barangay'] as String?,
@@ -65,7 +65,7 @@ class EmergencyModel {
       userSnapshot: json['userSnapshot'] as Map<String, dynamic>?,
       bleEventId: json['bleEventId'] as String?,
       sourceDeviceId: json['sourceDeviceId'] as String?,
-      deviceBatteryAtTrigger: json['deviceBatteryAtTrigger'] as int?,
+      deviceBatteryAtTrigger: (json['deviceBatteryAtTrigger'] as num?)?.toInt(),
       timeline: (json['timeline'] as List? ?? [])
           .whereType<Map<String, dynamic>>()
           .map(EmergencyTimelineEvent.fromJson)

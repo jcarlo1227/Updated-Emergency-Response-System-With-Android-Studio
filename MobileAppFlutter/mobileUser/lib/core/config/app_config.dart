@@ -1,26 +1,20 @@
-import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
 
 class AppConfig {
   AppConfig._();
 
-  static String get apiBaseUrl {
-    // If you are testing on a physical device, use your computer's local IP address.
-    // Replace '192.168.1.10' if your computer's IP address changes.
-    const String physicalDeviceIp = '192.168.1.10';
+  // Pass at build/run time via --dart-define=API_BASE_URL=https://your-tunnel.trycloudflare.com/api
+  // Empty string means: fall back to local LAN defaults (dev on same Wi-Fi).
+  static const String _apiBaseUrlOverride =
+      String.fromEnvironment('API_BASE_URL', defaultValue: '');
 
+  // Used only when API_BASE_URL is not provided. Set to your laptop's LAN IP.
+  static const String _lanDevIp = '192.168.1.10';
+
+  static String get apiBaseUrl {
+    if (_apiBaseUrlOverride.isNotEmpty) return _apiBaseUrlOverride;
     if (kIsWeb) return 'http://localhost:5000/api';
-    try {
-      // If Android, we first check if it might be a physical device. 
-      // Emulators often return false for some physical characteristics, but a safer bet
-      // for local dev across emulators AND physical devices is just to use the IP directly.
-      // However, to keep it compatible out-of-the-box, we'll return the local IP first.
-      
-      // return 'http://10.0.2.2:5000/api'; // Uncomment for Emulator ONLY
-      return 'http://$physicalDeviceIp:5000/api'; // Works for physical devices AND emulators
-    } catch (_) {
-      return 'http://127.0.0.1:5000/api';
-    }
+    return 'http://$_lanDevIp:5000/api';
   }
 
   static const String serviceUuid = '9f4d0001-7d6a-4b85-9e74-2f4d8e8d0001';

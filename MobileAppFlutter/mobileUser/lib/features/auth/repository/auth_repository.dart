@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:http_parser/http_parser.dart';
 import '../../../core/networking/api_client.dart';
 import '../../../core/storage/secure_storage.dart';
 import '../models/user_model.dart';
@@ -46,61 +45,43 @@ class AuthRepository {
     required String email,
     required String phone,
     required String password,
+    required String streetAddress,
     required DateTime dateOfBirth,
     required String bloodType,
-    required String streetAddress,
     required String emergencyContactName,
     required String emergencyContactNumber,
-    required File faceCapture,
     required File proofOfResidency,
+    required File faceCapture,
     String? municipality,
     String? barangay,
   }) async {
     try {
-      String? mimeFromPath(String path) {
-        final lower = path.toLowerCase();
-        if (lower.endsWith('.png')) return 'image/png';
-        if (lower.endsWith('.heic')) return 'image/heic';
-        if (lower.endsWith('.webp')) return 'image/webp';
-        return 'image/jpeg';
-      }
-
-      MediaType mediaTypeOf(File f) {
-        final mt = mimeFromPath(f.path) ?? 'image/jpeg';
-        final parts = mt.split('/');
-        return MediaType(parts[0], parts[1]);
-      }
-
-      final form = FormData.fromMap({
+      final fields = <String, dynamic>{
         'name': name.trim(),
         'email': email.trim().toLowerCase(),
         'phone': phone.trim(),
         'password': password,
-        'dateOfBirth': dateOfBirth.toUtc().toIso8601String(),
-        'bloodType': bloodType,
         'streetAddress': streetAddress.trim(),
+        'dateOfBirth': dateOfBirth.toIso8601String(),
+        'bloodType': bloodType,
         'emergencyContactName': emergencyContactName.trim(),
         'emergencyContactNumber': emergencyContactNumber.trim(),
-        if (municipality != null) 'municipality': municipality,
-        if (barangay != null) 'barangay': barangay,
-        'faceCapture': await MultipartFile.fromFile(
-          faceCapture.path,
-          filename: faceCapture.path.split(Platform.pathSeparator).last,
-          contentType: mediaTypeOf(faceCapture),
-        ),
-        'proofOfResidency': await MultipartFile.fromFile(
-          proofOfResidency.path,
-          filename: proofOfResidency.path.split(Platform.pathSeparator).last,
-          contentType: mediaTypeOf(proofOfResidency),
-        ),
-      });
-
+        'proofOfResidency':
+            await MultipartFile.fromFile(proofOfResidency.path),
+        'faceCapture': await MultipartFile.fromFile(faceCapture.path),
+      };
+      if (municipality != null && municipality.trim().isNotEmpty) {
+        fields['municipality'] = municipality.trim();
+      }
+      if (barangay != null && barangay.trim().isNotEmpty) {
+        fields['barangay'] = barangay.trim();
+      }
       final response = await _dio.post(
         '/auth/register/user',
-        data: form,
-        options: Options(contentType: 'multipart/form-data'),
+        data: FormData.fromMap(fields),
       );
-      final data = (response.data as Map<String, dynamic>)['data'] as Map<String, dynamic>;
+      final data = (response.data as Map<String, dynamic>)['data']
+          as Map<String, dynamic>;
       return UserModel.fromJson(data);
     } on DioException catch (e) {
       throw dioErrorToApiException(e);

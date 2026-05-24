@@ -3,13 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:dio/dio.dart';
 import '../../../../core/networking/api_client.dart';
-import '../../../../core/networking/api_exception.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_input.dart';
 import '../../auth/providers/auth_provider.dart';
-import '../models/picked_location.dart';
-import 'location_picker_screen.dart';
+import 'map_picker_screen.dart';
 
 class AmbulanceFormScreen extends ConsumerStatefulWidget {
   final String requestType;
@@ -35,8 +33,9 @@ class _AmbulanceFormScreenState extends ConsumerState<AmbulanceFormScreen> {
   bool _loading = false;
   String? _error;
   bool _isTanzaCitizen = true;
-  PickedLocation? _pickup;
-  PickedLocation? _dropoff;
+
+  MapPickerResult? _pickupLocation;
+  MapPickerResult? _dropoffLocation;
 
   late bool _needsTimeWindow;
 
@@ -53,6 +52,34 @@ class _AmbulanceFormScreenState extends ConsumerState<AmbulanceFormScreen> {
     _patientSpecialCtrl.dispose(); _accompanyingNameCtrl.dispose();
     _accompanyingContactCtrl.dispose(); _notesCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickPickupLocation() async {
+    final result = await Navigator.of(context).push<MapPickerResult>(
+      MaterialPageRoute(
+        builder: (_) => MapPickerScreen(
+          title: 'Select Pickup Location',
+          initialLat: _pickupLocation?.lat,
+          initialLng: _pickupLocation?.lng,
+          initialLabel: _pickupLocation?.label,
+        ),
+      ),
+    );
+    if (result != null) setState(() => _pickupLocation = result);
+  }
+
+  Future<void> _pickDropoffLocation() async {
+    final result = await Navigator.of(context).push<MapPickerResult>(
+      MaterialPageRoute(
+        builder: (_) => MapPickerScreen(
+          title: 'Select Drop-off Location',
+          initialLat: _dropoffLocation?.lat,
+          initialLng: _dropoffLocation?.lng,
+          initialLabel: _dropoffLocation?.label,
+        ),
+      ),
+    );
+    if (result != null) setState(() => _dropoffLocation = result);
   }
 
   Future<void> _pickDate() async {
@@ -72,42 +99,25 @@ class _AmbulanceFormScreenState extends ConsumerState<AmbulanceFormScreen> {
     );
     if (picked != null) {
       if (picked.hour < 15 || picked.hour > 18 || (picked.hour == 18 && picked.minute > 0)) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Schedule/Transfer only allowed 3:00 PM – 7:00 PM.')),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Schedule/Transfer only allowed 3:00 PM – 7:00 PM.')),
+          );
+        }
         return;
       }
       setState(() => _requestedTime = picked);
     }
   }
 
-  Future<void> _pickLocation(LocationPickerMode mode) async {
-    final result = await Navigator.of(context).push<PickedLocation>(
-      MaterialPageRoute(
-        builder: (_) => LocationPickerScreen(
-          mode: mode,
-          initial: mode == LocationPickerMode.pickup ? _pickup : _dropoff,
-        ),
-      ),
-    );
-    if (result == null) return;
-    setState(() {
-      if (mode == LocationPickerMode.pickup) {
-        _pickup = result;
-      } else {
-        _dropoff = result;
-      }
-    });
-  }
-
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
-    if (_pickup == null) {
-      setState(() => _error = 'Select a pickup location.');
+    if (_pickupLocation == null) {
+      setState(() => _error = 'Select a pickup location on the map.');
       return;
     }
-    if (_dropoff == null) {
-      setState(() => _error = 'Select a drop-off location.');
+    if (_dropoffLocation == null) {
+      setState(() => _error = 'Select a drop-off location on the map.');
       return;
     }
     if (_needsTimeWindow) {
@@ -127,10 +137,19 @@ class _AmbulanceFormScreenState extends ConsumerState<AmbulanceFormScreen> {
           'address': _patientAddressCtrl.text.trim(),
           'contactNumber': _patientContactCtrl.text.trim(),
           'medicalCondition': _patientConditionCtrl.text.trim(),
-          if (_patientSpecialCtrl.text.trim().isNotEmpty) 'specialRequirements': _patientSpecialCtrl.text.trim(),
+          if (_patientSpecialCtrl.text.trim().isNotEmpty)
+            'specialRequirements': _patientSpecialCtrl.text.trim(),
         },
-        'pickupLocation': _pickup!.toGeoPoint(),
-        'dropOffLocation': _dropoff!.toGeoPoint(),
+        'pickupLocation': {
+          'type': 'Point',
+          'coordinates': [_pickupLocation!.lng, _pickupLocation!.lat],
+          'addressLabel': _pickupLocation!.label,
+        },
+        'dropOffLocation': {
+          'type': 'Point',
+          'coordinates': [_dropoffLocation!.lng, _dropoffLocation!.lat],
+          'addressLabel': _dropoffLocation!.label,
+        },
         'isTanzaCitizen': _isTanzaCitizen,
         if (user?.barangay != null) 'barangay': user!.barangay,
         if (_accompanyingNameCtrl.text.trim().isNotEmpty)
@@ -141,7 +160,8 @@ class _AmbulanceFormScreenState extends ConsumerState<AmbulanceFormScreen> {
         if (_needsTimeWindow && _requestedDate != null)
           'requestedDate': _requestedDate!.toIso8601String().split('T').first,
         if (_needsTimeWindow && _requestedTime != null)
-          'requestedTime': '${_requestedTime!.hour.toString().padLeft(2, '0')}:${_requestedTime!.minute.toString().padLeft(2, '0')}',
+          'requestedTime':
+              '${_requestedTime!.hour.toString().padLeft(2, '0')}:${_requestedTime!.minute.toString().padLeft(2, '0')}',
         if (_notesCtrl.text.trim().isNotEmpty) 'notes': _notesCtrl.text.trim(),
       };
       final res = await dio.post('/ambulance-requests', data: body);
@@ -166,19 +186,11 @@ class _AmbulanceFormScreenState extends ConsumerState<AmbulanceFormScreen> {
       'transfer' => 'Hospital Transfer',
       _ => 'Transport Request',
     };
-    final typeColor = widget.requestType == 'emergency' ? AppColors.alertRed : AppColors.responderBlue;
+    final typeColor =
+        widget.requestType == 'emergency' ? AppColors.alertRed : AppColors.responderBlue;
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(typeLabel),
-        actions: [
-          TextButton.icon(
-            onPressed: () => context.push('/home/ambulance/history'),
-            icon: const Icon(Icons.history, color: Colors.white, size: 18),
-            label: const Text('My Requests', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
+      appBar: AppBar(title: Text(typeLabel)),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Form(
@@ -189,79 +201,156 @@ class _AmbulanceFormScreenState extends ConsumerState<AmbulanceFormScreen> {
               if (widget.requestType == 'emergency')
                 Container(
                   padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(color: AppColors.softRed, borderRadius: BorderRadius.circular(8)),
+                  decoration: BoxDecoration(
+                    color: AppColors.softRed,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                   child: const Row(
                     children: [
                       Icon(Icons.priority_high, color: AppColors.alertRed),
                       SizedBox(width: 8),
-                      Expanded(child: Text('Emergency request — goes directly to admin for priority review.', style: TextStyle(color: AppColors.alertRed, fontSize: 13))),
+                      Expanded(
+                        child: Text(
+                          'Emergency request — goes directly to admin for priority review.',
+                          style: TextStyle(color: AppColors.alertRed, fontSize: 13),
+                        ),
+                      ),
                     ],
                   ),
                 ),
               if (widget.requestType != 'emergency')
                 Container(
                   padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(color: AppColors.softBlue, borderRadius: BorderRadius.circular(8)),
-                  child: const Text('Schedule and Transfer requests are available 3:00 PM – 7:00 PM only.', style: TextStyle(color: AppColors.responderBlue, fontSize: 13)),
+                  decoration: BoxDecoration(
+                    color: AppColors.softBlue,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Text(
+                    'Schedule and Transfer requests are available 3:00 PM – 7:00 PM only.',
+                    style: TextStyle(color: AppColors.responderBlue, fontSize: 13),
+                  ),
                 ),
+
+              // ── Location section ──────────────────────────────────────
               const SizedBox(height: 20),
-              const Text('Patient Information', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-              const SizedBox(height: 12),
-              AppInput(label: 'Patient full name', controller: _patientNameCtrl, validator: (v) => v!.trim().isEmpty ? 'Required' : null),
-              const SizedBox(height: 12),
-              AppInput(label: 'Patient address', controller: _patientAddressCtrl, validator: (v) => v!.trim().isEmpty ? 'Required' : null),
-              const SizedBox(height: 12),
-              AppInput(label: 'Contact number', controller: _patientContactCtrl, keyboardType: TextInputType.phone, validator: (v) => v!.trim().length < 7 ? 'Enter valid number' : null),
-              const SizedBox(height: 12),
-              AppInput(label: 'Medical condition', controller: _patientConditionCtrl, maxLines: 3, validator: (v) => v!.trim().isEmpty ? 'Required' : null),
-              const SizedBox(height: 12),
-              AppInput(label: 'Special requirements (optional)', controller: _patientSpecialCtrl, maxLines: 2),
-              const SizedBox(height: 20),
-              const Text('Pickup & Drop-off', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-              const SizedBox(height: 12),
-              _LocationField(
-                label: 'Pickup location',
-                placeholder: 'Use current location or pick on map',
-                value: _pickup,
-                accent: AppColors.alertRed,
-                icon: Icons.my_location,
-                onTap: () => _pickLocation(LocationPickerMode.pickup),
+              const Text(
+                'Locations',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: 12),
-              _LocationField(
-                label: 'Drop-off location',
-                placeholder: 'Search or pick destination on map',
-                value: _dropoff,
-                accent: AppColors.responderBlue,
-                icon: Icons.local_hospital,
-                onTap: () => _pickLocation(LocationPickerMode.dropoff),
+              _LocationCard(
+                label: 'Pickup Location',
+                icon: Icons.trip_origin,
+                iconColor: AppColors.successGreen,
+                result: _pickupLocation,
+                onTap: _pickPickupLocation,
               ),
+              const SizedBox(height: 10),
+              _LocationCard(
+                label: 'Drop-off Location',
+                icon: Icons.location_on,
+                iconColor: AppColors.alertRed,
+                result: _dropoffLocation,
+                onTap: _pickDropoffLocation,
+              ),
+
+              // ── Patient info ──────────────────────────────────────────
               const SizedBox(height: 20),
-              const Text('Accompanying Person', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+              const Text(
+                'Patient Information',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+              ),
               const SizedBox(height: 12),
-              AppInput(label: 'Accompanying person name (optional)', controller: _accompanyingNameCtrl),
+              AppInput(
+                label: 'Patient full name',
+                controller: _patientNameCtrl,
+                validator: (v) => v!.trim().isEmpty ? 'Required' : null,
+              ),
               const SizedBox(height: 12),
-              AppInput(label: 'Accompanying person contact', controller: _accompanyingContactCtrl, keyboardType: TextInputType.phone),
+              AppInput(
+                label: 'Patient address',
+                controller: _patientAddressCtrl,
+                validator: (v) => v!.trim().isEmpty ? 'Required' : null,
+              ),
+              const SizedBox(height: 12),
+              AppInput(
+                label: 'Contact number',
+                controller: _patientContactCtrl,
+                keyboardType: TextInputType.phone,
+                validator: (v) => v!.trim().length < 7 ? 'Enter valid number' : null,
+              ),
+              const SizedBox(height: 12),
+              AppInput(
+                label: 'Medical condition',
+                controller: _patientConditionCtrl,
+                maxLines: 3,
+                validator: (v) => v!.trim().isEmpty ? 'Required' : null,
+              ),
+              const SizedBox(height: 12),
+              AppInput(
+                label: 'Special requirements (optional)',
+                controller: _patientSpecialCtrl,
+                maxLines: 2,
+              ),
+
+              // ── Accompanying person ───────────────────────────────────
+              const SizedBox(height: 20),
+              const Text(
+                'Accompanying Person',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 12),
+              AppInput(
+                label: 'Accompanying person name (optional)',
+                controller: _accompanyingNameCtrl,
+              ),
+              const SizedBox(height: 12),
+              AppInput(
+                label: 'Accompanying person contact',
+                controller: _accompanyingContactCtrl,
+                keyboardType: TextInputType.phone,
+              ),
+
+              // ── Tanza citizen toggle ──────────────────────────────────
               const SizedBox(height: 20),
               Row(
                 children: [
-                  const Text('Tanza Citizen/Resident', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                  const Text(
+                    'Tanza Citizen/Resident',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                  ),
                   const Spacer(),
-                  Switch(value: _isTanzaCitizen, onChanged: (v) => setState(() => _isTanzaCitizen = v), activeColor: typeColor),
+                  Switch(
+                    value: _isTanzaCitizen,
+                    onChanged: (v) => setState(() => _isTanzaCitizen = v),
+                    activeThumbColor: typeColor,
+                  ),
                 ],
               ),
               const SizedBox(height: 4),
-              const Text('Tanza residents receive priority in MDRRMO review.', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
+              const Text(
+                'Tanza residents receive priority in MDRRMO review.',
+                style: TextStyle(fontSize: 12, color: AppColors.textMuted),
+              ),
+
+              // ── Schedule window ───────────────────────────────────────
               if (_needsTimeWindow) ...[
                 const SizedBox(height: 20),
-                const Text('Schedule', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                const Text(
+                  'Schedule',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                ),
                 const SizedBox(height: 12),
                 Row(
                   children: [
                     Expanded(
                       child: OutlinedButton.icon(
                         icon: const Icon(Icons.calendar_today, size: 16),
-                        label: Text(_requestedDate == null ? 'Select date' : '${_requestedDate!.day}/${_requestedDate!.month}/${_requestedDate!.year}'),
+                        label: Text(
+                          _requestedDate == null
+                              ? 'Select date'
+                              : '${_requestedDate!.day}/${_requestedDate!.month}/${_requestedDate!.year}',
+                        ),
                         onPressed: _pickDate,
                       ),
                     ),
@@ -269,27 +358,52 @@ class _AmbulanceFormScreenState extends ConsumerState<AmbulanceFormScreen> {
                     Expanded(
                       child: OutlinedButton.icon(
                         icon: const Icon(Icons.access_time, size: 16),
-                        label: Text(_requestedTime == null ? 'Select time' : '${_requestedTime!.hour.toString().padLeft(2, '0')}:${_requestedTime!.minute.toString().padLeft(2, '0')}'),
+                        label: Text(
+                          _requestedTime == null
+                              ? 'Select time'
+                              : '${_requestedTime!.hour.toString().padLeft(2, '0')}:${_requestedTime!.minute.toString().padLeft(2, '0')}',
+                        ),
                         onPressed: _pickTime,
                       ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 4),
-                const Text('Available times: 3:00 PM – 7:00 PM only', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
+                const Text(
+                  'Available times: 3:00 PM – 7:00 PM only',
+                  style: TextStyle(fontSize: 11, color: AppColors.textMuted),
+                ),
               ],
+
               const SizedBox(height: 20),
-              AppInput(label: 'Additional notes (optional)', controller: _notesCtrl, maxLines: 3),
+              AppInput(
+                label: 'Additional notes (optional)',
+                controller: _notesCtrl,
+                maxLines: 3,
+              ),
               const SizedBox(height: 24),
+
               if (_error != null) ...[
                 Container(
                   padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(color: AppColors.softRed, borderRadius: BorderRadius.circular(8)),
-                  child: Text(_error!, style: const TextStyle(color: AppColors.alertRed)),
+                  decoration: BoxDecoration(
+                    color: AppColors.softRed,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    _error!,
+                    style: const TextStyle(color: AppColors.alertRed),
+                  ),
                 ),
                 const SizedBox(height: 12),
               ],
-              AppButton(label: 'Submit Request', onPressed: _submit, isLoading: _loading, backgroundColor: typeColor),
+
+              AppButton(
+                label: 'Submit Request',
+                onPressed: _submit,
+                isLoading: _loading,
+                backgroundColor: typeColor,
+              ),
               const SizedBox(height: 32),
             ],
           ),
@@ -299,37 +413,34 @@ class _AmbulanceFormScreenState extends ConsumerState<AmbulanceFormScreen> {
   }
 }
 
-class _LocationField extends StatelessWidget {
+class _LocationCard extends StatelessWidget {
   final String label;
-  final String placeholder;
-  final PickedLocation? value;
-  final Color accent;
   final IconData icon;
+  final Color iconColor;
+  final MapPickerResult? result;
   final VoidCallback onTap;
 
-  const _LocationField({
+  const _LocationCard({
     required this.label,
-    required this.placeholder,
-    required this.value,
-    required this.accent,
     required this.icon,
+    required this.iconColor,
+    required this.result,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final hasValue = value != null;
-    return InkWell(
+    final isSet = result != null;
+    return GestureDetector(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: AppColors.surface,
+          color: isSet ? AppColors.surface : AppColors.background,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: hasValue ? accent : AppColors.border,
-            width: hasValue ? 1.5 : 1,
+            color: isSet ? iconColor : AppColors.border,
+            width: isSet ? 1.5 : 1,
           ),
         ),
         child: Row(
@@ -338,33 +449,58 @@ class _LocationField extends StatelessWidget {
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                color: hasValue ? accent.withValues(alpha: 0.1) : AppColors.background,
-                borderRadius: BorderRadius.circular(8),
+                color: iconColor.withValues(alpha: 0.1),
+                shape: BoxShape.circle,
               ),
-              child: Icon(icon, color: hasValue ? accent : AppColors.textMuted, size: 20),
+              child: Icon(icon, color: iconColor, size: 20),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(label,
-                      style: const TextStyle(fontSize: 12, color: AppColors.textMuted, fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 2),
                   Text(
-                    hasValue ? value!.address : placeholder,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: hasValue ? null : AppColors.textMuted,
-                      fontWeight: hasValue ? FontWeight.w500 : FontWeight.w400,
+                    label,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.textMuted,
+                      fontWeight: FontWeight.w500,
                     ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
                   ),
+                  const SizedBox(height: 2),
+                  if (isSet) ...[
+                    Text(
+                      result!.label,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textStrong,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${result!.lat.toStringAsFixed(5)}, ${result!.lng.toStringAsFixed(5)}',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: AppColors.textMuted,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ] else
+                    const Text(
+                      'Tap to select on map',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: AppColors.textMuted,
+                      ),
+                    ),
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right, color: AppColors.textMuted),
+            Icon(
+              isSet ? Icons.edit_location_alt : Icons.map_outlined,
+              color: isSet ? iconColor : AppColors.textMuted,
+            ),
           ],
         ),
       ),

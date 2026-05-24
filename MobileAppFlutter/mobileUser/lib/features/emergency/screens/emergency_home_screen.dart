@@ -15,7 +15,6 @@ class EmergencyHomeScreen extends ConsumerWidget {
     final user = ref.watch(currentUserProvider);
     final emergencyState = ref.watch(emergencyProvider);
     final hasActive = emergencyState is EmergencyActive;
-    final hasQueued = emergencyState is EmergencyQueued;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -28,14 +27,8 @@ class EmergencyHomeScreen extends ConsumerWidget {
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
             ),
             Text(
-              user?.barangay != null
-                  ? '${user!.barangay}, Tanza'
-                  : 'Tanza, Cavite',
-              style: const TextStyle(
-                fontSize: 11,
-                color: AppColors.textMuted,
-                fontWeight: FontWeight.w400,
-              ),
+              user?.barangay != null ? '${user!.barangay}, Tanza' : 'Tanza, Cavite',
+              style: const TextStyle(fontSize: 11, color: AppColors.textMuted, fontWeight: FontWeight.w400),
             ),
           ],
         ),
@@ -59,21 +52,13 @@ class EmergencyHomeScreen extends ConsumerWidget {
             const SizedBox(height: 16),
             if (hasActive) ...[
               _ActiveEmergencyBanner(
-                status: emergencyState.emergency.status,
+                status: (emergencyState).emergency.status,
                 emergencyId: emergencyState.emergency.id,
-                onTap: () => context.push(
-                  '/home/emergency/${emergencyState.emergency.id}',
-                ),
+                onTap: () => context.push('/home/emergency/${emergencyState.emergency.id}'),
               ),
               const SizedBox(height: 16),
-            ] else if (hasQueued) ...[
-              const _QueuedAlertBanner(),
-              const SizedBox(height: 16),
             ],
-            const Text(
-              'Emergency',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
-            ),
+            const Text('Emergency', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
             const SizedBox(height: 4),
             const Text(
               'Tap to send emergency alert to Tanza MDRRMO',
@@ -88,24 +73,15 @@ class EmergencyHomeScreen extends ConsumerWidget {
               mainAxisSpacing: 12,
               childAspectRatio: 1.1,
               children: EmergencyTypeButton.all(
-                onTap: (type) =>
-                    context.push('/home/emergency/confirm?type=$type'),
+                onTap: (type) => context.push('/home/emergency/confirm?type=$type'),
               ),
             ),
             const SizedBox(height: 20),
-            const Text(
-              'Ambulance Transport',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-            ),
+            const Text('Ambulance Transport', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
             const SizedBox(height: 10),
-            _AmbulanceCard(
-              onTap: (type) => context.push('/home/ambulance/new?type=$type'),
-            ),
+            _AmbulanceCard(onTap: (type) => context.push('/home/ambulance/new?type=$type')),
             const SizedBox(height: 16),
-            const Text(
-              'Keychain Status',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-            ),
+            const Text('Keychain Status', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
             const SizedBox(height: 10),
             const DeviceStatusCard(),
             const SizedBox(height: 16),
@@ -113,46 +89,6 @@ class EmergencyHomeScreen extends ConsumerWidget {
             const SizedBox(height: 32),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _QueuedAlertBanner extends StatelessWidget {
-  const _QueuedAlertBanner();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.warningAmber.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.warningAmber.withOpacity(0.4)),
-      ),
-      child: const Row(
-        children: [
-          Icon(Icons.cloud_upload_outlined, color: AppColors.warningAmber),
-          SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Alert Queued — No Connection',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.warningAmber,
-                  ),
-                ),
-                Text(
-                  'Will send automatically when back online.',
-                  style: TextStyle(fontSize: 12, color: AppColors.textMuted),
-                ),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -188,20 +124,8 @@ class _ActiveEmergencyBanner extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Active Emergency',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.alertRed,
-                    ),
-                  ),
-                  Text(
-                    status.replaceAll('_', ' ').toUpperCase(),
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: AppColors.textMuted,
-                    ),
-                  ),
+                  const Text('Active Emergency', style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.alertRed)),
+                  Text(status.replaceAll('_', ' ').toUpperCase(), style: const TextStyle(fontSize: 12, color: AppColors.textMuted)),
                 ],
               ),
             ),
@@ -231,16 +155,9 @@ class _AmbulanceCard extends StatelessWidget {
         children: [
           const Row(
             children: [
-              Icon(
-                Icons.local_hospital,
-                color: AppColors.responderBlue,
-                size: 22,
-              ),
+              Icon(Icons.local_hospital, color: AppColors.responderBlue, size: 22),
               SizedBox(width: 8),
-              Text(
-                'Request Ambulance Transport',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
-              ),
+              Text('Request Ambulance Transport', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
             ],
           ),
           const SizedBox(height: 4),
@@ -251,32 +168,11 @@ class _AmbulanceCard extends StatelessWidget {
           const SizedBox(height: 14),
           Row(
             children: [
-              Expanded(
-                child: _AmbulanceTypeChip(
-                  label: 'Emergency',
-                  type: 'emergency',
-                  color: AppColors.alertRed,
-                  onTap: onTap,
-                ),
-              ),
+              Expanded(child: _AmbulanceTypeChip(label: 'Emergency', type: 'emergency', color: AppColors.alertRed, onTap: onTap)),
               const SizedBox(width: 8),
-              Expanded(
-                child: _AmbulanceTypeChip(
-                  label: 'Schedule',
-                  type: 'schedule',
-                  color: AppColors.responderBlue,
-                  onTap: onTap,
-                ),
-              ),
+              Expanded(child: _AmbulanceTypeChip(label: 'Schedule', type: 'schedule', color: AppColors.responderBlue, onTap: onTap)),
               const SizedBox(width: 8),
-              Expanded(
-                child: _AmbulanceTypeChip(
-                  label: 'Transfer',
-                  type: 'transfer',
-                  color: AppColors.warningAmber,
-                  onTap: onTap,
-                ),
-              ),
+              Expanded(child: _AmbulanceTypeChip(label: 'Transfer', type: 'transfer', color: AppColors.warningAmber, onTap: onTap)),
             ],
           ),
         ],
@@ -291,12 +187,7 @@ class _AmbulanceTypeChip extends StatelessWidget {
   final Color color;
   final void Function(String) onTap;
 
-  const _AmbulanceTypeChip({
-    required this.label,
-    required this.type,
-    required this.color,
-    required this.onTap,
-  });
+  const _AmbulanceTypeChip({required this.label, required this.type, required this.color, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -310,14 +201,7 @@ class _AmbulanceTypeChip extends StatelessWidget {
           border: Border.all(color: color.withOpacity(0.25)),
         ),
         child: Center(
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: color,
-            ),
-          ),
+          child: Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: color)),
         ),
       ),
     );
@@ -362,11 +246,7 @@ class _QuickLink extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
 
-  const _QuickLink({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
+  const _QuickLink({required this.icon, required this.label, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -383,15 +263,7 @@ class _QuickLink extends StatelessWidget {
           children: [
             Icon(icon, color: AppColors.responderBlue, size: 22),
             const SizedBox(height: 6),
-            Text(
-              label,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 11,
-                color: AppColors.textMuted,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
+            Text(label, textAlign: TextAlign.center, style: const TextStyle(fontSize: 11, color: AppColors.textMuted, fontWeight: FontWeight.w600)),
           ],
         ),
       ),

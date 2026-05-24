@@ -12,7 +12,6 @@ import '../../features/emergency/screens/emergency_confirmation_screen.dart';
 import '../../features/emergency/screens/active_emergency_screen.dart';
 import '../../features/emergency/screens/emergency_history_screen.dart';
 import '../../features/ambulance_transport/screens/ambulance_form_screen.dart';
-import '../../features/ambulance_transport/screens/ambulance_history_screen.dart';
 import '../../features/ambulance_transport/screens/ambulance_tracking_screen.dart';
 import '../../features/ble_panic_button/screens/ble_pairing_screen.dart';
 import '../../features/map/screens/nearby_facilities_screen.dart';
@@ -41,17 +40,17 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       return null;
     },
     routes: [
-      GoRoute(path: '/splash', builder: (_, __) => const SplashScreen()),
-      GoRoute(path: '/login', builder: (_, __) => const LoginScreen()),
-      GoRoute(path: '/register', builder: (_, __) => const RegistrationStep1Screen()),
+      GoRoute(path: '/splash', builder: (_, _) => const SplashScreen()),
+      GoRoute(path: '/login', builder: (_, _) => const LoginScreen()),
+      GoRoute(path: '/register', builder: (_, _) => const RegistrationStep1Screen()),
       GoRoute(path: '/register/step2', builder: (_, s) {
         final extra = s.extra as Map<String, dynamic>?;
         return RegistrationStep2Screen(step1Data: extra ?? {});
       }),
-      GoRoute(path: '/pending', builder: (_, __) => const PendingApprovalScreen()),
+      GoRoute(path: '/pending', builder: (_, _) => const PendingApprovalScreen()),
       GoRoute(
         path: '/home',
-        builder: (_, __) => const EmergencyHomeScreen(),
+        builder: (_, _) => const EmergencyHomeScreen(),
         routes: [
           GoRoute(
             path: 'emergency/confirm',
@@ -63,22 +62,18 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             path: 'emergency/:id',
             builder: (_, s) => ActiveEmergencyScreen(emergencyId: s.pathParameters['id']!),
           ),
-          GoRoute(path: 'history', builder: (_, __) => const EmergencyHistoryScreen()),
+          GoRoute(path: 'history', builder: (_, _) => const EmergencyHistoryScreen()),
           GoRoute(path: 'ambulance/new', builder: (_, s) {
             final t = (s.uri.queryParameters['type'] ?? 'emergency');
             return AmbulanceFormScreen(requestType: t);
           }),
           GoRoute(
-            path: 'ambulance/history',
-            builder: (_, __) => const AmbulanceHistoryScreen(),
-          ),
-          GoRoute(
             path: 'ambulance/:id',
             builder: (_, s) => AmbulanceTrackingScreen(requestId: s.pathParameters['id']!),
           ),
-          GoRoute(path: 'ble', builder: (_, __) => const BlePairingScreen()),
-          GoRoute(path: 'map', builder: (_, __) => const NearbyFacilitiesScreen()),
-          GoRoute(path: 'settings', builder: (_, __) => const SettingsScreen()),
+          GoRoute(path: 'ble', builder: (_, _) => const BlePairingScreen()),
+          GoRoute(path: 'map', builder: (_, _) => const NearbyFacilitiesScreen()),
+          GoRoute(path: 'settings', builder: (_, _) => const SettingsScreen()),
         ],
       ),
     ],

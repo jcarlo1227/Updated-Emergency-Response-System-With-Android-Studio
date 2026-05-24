@@ -2,7 +2,14 @@
   "permissions": {
     "allow": [
       "Read(//c/Users/ac/OneDrive/Desktop/emergencyApp/MobileAppFlutter/mobileResponder/**)",
-      "Bash(flutter analyze *)"
+      "Bash(flutter analyze *)",
+      "Read(//c/Users/ac/OneDrive/Desktop/emergencyApp/**)",
+      "Bash(tasklist)",
+      "Bash(netstat -ano)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" --max-time 15 https://expressed-circuits-eyed-recovery.trycloudflare.com/api/health)",
+      "Bash(curl -s --max-time 15 https://expressed-circuits-eyed-recovery.trycloudflare.com/api)",
+      "Bash(curl -s -o /dev/null -w \"health: %{http_code}\\\\n\" --max-time 15 https://societies-timothy-implied-charlotte.trycloudflare.com/api/health)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" --max-time 15 \"$\\(cat tunnel-url.txt\\)/api/health\")"
     ]
   }
 }

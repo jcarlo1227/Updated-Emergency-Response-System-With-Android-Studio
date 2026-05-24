@@ -4,3 +4,10 @@ node_modulesdist
 *.log
 .DS_Store
 node_modules
+
+# Cloudflare tunnel (local-only)
+tools/cloudflared.exe
+tunnel.log
+tunnel.log.err
+tunnel-url.txt
+tunnel-config.json

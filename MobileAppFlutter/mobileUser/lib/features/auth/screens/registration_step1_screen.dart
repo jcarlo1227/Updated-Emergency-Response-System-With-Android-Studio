@@ -1,20 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_input.dart';
 
 const _tanzaBarangays = [
-  'Amaya', 'Bagtas', 'Balsik', 'Bambang', 'Banaba Cerca', 'Banaba Lejos',
-  'Banaba Kanluran', 'Banaba Silangan', 'Biluso', 'Canas', 'Daang Amaya I',
-  'Daang Amaya II', 'Daang Amaya III', 'Halang', 'Humbac', 'Ibayo Estacion',
-  'Ibayo Tipas', 'Lumampong Balagbag', 'Lumampong Halayhay', 'Mulawin',
-  'Paradahan', 'Punta I', 'Punta II', 'Sahud Ulan', 'Sanja Mayor',
-  'Santol', 'Tanauan', 'Tatlong Tulo', 'Tres Cruses',
+  'Amaya I', 'Amaya II', 'Amaya III', 'Amaya IV', 'Amaya V', 'Amaya VI',
+  'Amaya VII', 'Bagtas', 'Biga', 'Biwas', 'Bucal', 'Bunga', 'Calibuyo',
+  'Capipisa', 'Daang Amaya I', 'Daang Amaya II', 'Daang Amaya III',
+  'Halayhay', 'Julugan I', 'Julugan II', 'Julugan III', 'Julugan IV',
+  'Julugan V', 'Julugan VI', 'Julugan VII', 'Julugan VIII', 'Lambingan',
+  'Mulawin', 'Paradahan I', 'Paradahan II', 'Punta I', 'Punta II',
+  'Sahud Ulan', 'Sanja Mayor', 'Santol', 'Tanauan', 'Tres Cruses',
+  'Barangay I (Poblacion)', 'Barangay II (Poblacion)',
+  'Barangay III (Poblacion)', 'Barangay IV (Poblacion)',
 ];
-
-const _bloodTypes = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 
 class RegistrationStep1Screen extends StatefulWidget {
   const RegistrationStep1Screen({super.key});
@@ -22,6 +22,8 @@ class RegistrationStep1Screen extends StatefulWidget {
   @override
   State<RegistrationStep1Screen> createState() => _RegistrationStep1ScreenState();
 }
+
+const _bloodTypes = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 
 class _RegistrationStep1ScreenState extends State<RegistrationStep1Screen> {
   final _formKey = GlobalKey<FormState>();
@@ -31,8 +33,9 @@ class _RegistrationStep1ScreenState extends State<RegistrationStep1Screen> {
   final _passCtrl = TextEditingController();
   final _confirmCtrl = TextEditingController();
   final _streetCtrl = TextEditingController();
-  final _emergencyNameCtrl = TextEditingController();
-  final _emergencyNumberCtrl = TextEditingController();
+  final _dobCtrl = TextEditingController();
+  final _ecNameCtrl = TextEditingController();
+  final _ecNumberCtrl = TextEditingController();
   String _municipality = 'Tanza';
   String? _barangay;
   String? _bloodType;
@@ -42,39 +45,27 @@ class _RegistrationStep1ScreenState extends State<RegistrationStep1Screen> {
 
   @override
   void dispose() {
-    _nameCtrl.dispose();
-    _emailCtrl.dispose();
-    _phoneCtrl.dispose();
-    _passCtrl.dispose();
-    _confirmCtrl.dispose();
-    _streetCtrl.dispose();
-    _emergencyNameCtrl.dispose();
-    _emergencyNumberCtrl.dispose();
+    _nameCtrl.dispose(); _emailCtrl.dispose(); _phoneCtrl.dispose();
+    _passCtrl.dispose(); _confirmCtrl.dispose();
+    _streetCtrl.dispose(); _dobCtrl.dispose();
+    _ecNameCtrl.dispose(); _ecNumberCtrl.dispose();
     super.dispose();
-  }
-
-  int? get _derivedAge {
-    if (_dob == null) return null;
-    final now = DateTime.now();
-    var age = now.year - _dob!.year;
-    if (now.month < _dob!.month ||
-        (now.month == _dob!.month && now.day < _dob!.day)) {
-      age--;
-    }
-    return age;
   }
 
   Future<void> _pickDob() async {
     final now = DateTime.now();
     final picked = await showDatePicker(
       context: context,
-      initialDate: _dob ?? DateTime(now.year - 25),
+      initialDate: _dob ?? DateTime(now.year - 25, now.month, now.day),
       firstDate: DateTime(now.year - 120),
       lastDate: now,
-      helpText: 'Select date of birth',
     );
     if (picked != null) {
-      setState(() => _dob = picked);
+      setState(() {
+        _dob = picked;
+        _dobCtrl.text =
+            '${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
+      });
     }
   }
 
@@ -108,17 +99,13 @@ class _RegistrationStep1ScreenState extends State<RegistrationStep1Screen> {
       'streetAddress': _streetCtrl.text.trim(),
       'dateOfBirth': _dob!.toIso8601String(),
       'bloodType': _bloodType!,
-      'emergencyContactName': _emergencyNameCtrl.text.trim(),
-      'emergencyContactNumber': _emergencyNumberCtrl.text.trim(),
+      'emergencyContactName': _ecNameCtrl.text.trim(),
+      'emergencyContactNumber': _ecNumberCtrl.text.trim(),
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final dobLabel = _dob == null
-        ? 'Select date of birth'
-        : DateFormat.yMMMMd().format(_dob!);
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Create Account'),
@@ -139,33 +126,28 @@ class _RegistrationStep1ScreenState extends State<RegistrationStep1Screen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Personal Information',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+              const Text('Personal Information', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
               const SizedBox(height: 4),
-              const Text('Step 1 of 2 — Personal & contact details',
-                  style: TextStyle(fontSize: 14, color: AppColors.textMuted)),
+              const Text('Step 1 of 2 — Basic details', style: TextStyle(fontSize: 14, color: AppColors.textMuted)),
               const SizedBox(height: 24),
               AppInput(
                 label: 'Full name',
                 controller: _nameCtrl,
-                validator: (v) =>
-                    v == null || v.trim().isEmpty ? 'Full name is required' : null,
+                validator: (v) => v == null || v.trim().isEmpty ? 'Full name is required' : null,
               ),
               const SizedBox(height: 16),
               AppInput(
                 label: 'Email address',
                 controller: _emailCtrl,
                 keyboardType: TextInputType.emailAddress,
-                validator: (v) =>
-                    v == null || !v.contains('@') ? 'Enter a valid email' : null,
+                validator: (v) => v == null || !v.contains('@') ? 'Enter a valid email' : null,
               ),
               const SizedBox(height: 16),
               AppInput(
                 label: 'Mobile number',
                 controller: _phoneCtrl,
                 keyboardType: TextInputType.phone,
-                validator: (v) =>
-                    v == null || v.trim().length < 7 ? 'Enter a valid phone number' : null,
+                validator: (v) => v == null || v.trim().length < 7 ? 'Enter a valid phone number' : null,
               ),
               const SizedBox(height: 16),
               AppInput(
@@ -176,8 +158,7 @@ class _RegistrationStep1ScreenState extends State<RegistrationStep1Screen> {
                   icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
                   onPressed: () => setState(() => _obscure = !_obscure),
                 ),
-                validator: (v) =>
-                    v == null || v.length < 8 ? 'Password must be at least 8 characters' : null,
+                validator: (v) => v == null || v.length < 8 ? 'Password must be at least 8 characters' : null,
               ),
               const SizedBox(height: 16),
               AppInput(
@@ -187,55 +168,32 @@ class _RegistrationStep1ScreenState extends State<RegistrationStep1Screen> {
                 validator: (v) => v != _passCtrl.text ? 'Passwords do not match' : null,
               ),
               const SizedBox(height: 24),
-              const Text('Medical Details',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+              const Text('Personal Details', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
               const SizedBox(height: 12),
-              InkWell(
+              AppInput(
+                label: 'Date of birth',
+                controller: _dobCtrl,
+                readOnly: true,
                 onTap: _pickDob,
-                child: InputDecorator(
-                  decoration: const InputDecoration(
-                    labelText: 'Date of birth',
-                    suffixIcon: Icon(Icons.calendar_today, size: 18),
-                  ),
-                  child: Text(
-                    dobLabel,
-                    style: TextStyle(
-                      fontSize: 15,
-                      color: _dob == null ? AppColors.textMuted : null,
-                    ),
-                  ),
-                ),
+                suffix: const Icon(Icons.calendar_today, size: 18),
+                validator: (v) => v == null || v.isEmpty ? 'Select your date of birth' : null,
               ),
-              if (_derivedAge != null) ...[
-                const SizedBox(height: 6),
-                Text('Age: ${_derivedAge!} years',
-                    style: const TextStyle(fontSize: 12, color: AppColors.textMuted)),
-              ],
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
-                value: _bloodType,
+                initialValue: _bloodType,
                 decoration: const InputDecoration(labelText: 'Blood type'),
                 hint: const Text('Select blood type'),
                 items: _bloodTypes
                     .map((b) => DropdownMenuItem(value: b, child: Text(b)))
                     .toList(),
                 onChanged: (v) => setState(() => _bloodType = v),
-                validator: (v) =>
-                    v == null || v.isEmpty ? 'Select your blood type' : null,
+                validator: (v) => v == null || v.isEmpty ? 'Select your blood type' : null,
               ),
               const SizedBox(height: 24),
-              const Text('Address',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+              const Text('Location', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
               const SizedBox(height: 12),
-              AppInput(
-                label: 'Street / house no. / subdivision',
-                controller: _streetCtrl,
-                validator: (v) =>
-                    v == null || v.trim().length < 2 ? 'Enter your residential address' : null,
-              ),
-              const SizedBox(height: 16),
               DropdownButtonFormField<String>(
-                value: _municipality,
+                initialValue: _municipality,
                 decoration: const InputDecoration(labelText: 'Municipality / City'),
                 items: const [
                   DropdownMenuItem(value: 'Tanza', child: Text('Tanza (Primary)')),
@@ -245,33 +203,36 @@ class _RegistrationStep1ScreenState extends State<RegistrationStep1Screen> {
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
-                value: _barangay,
+                initialValue: _barangay,
                 decoration: const InputDecoration(labelText: 'Barangay'),
                 hint: const Text('Select barangay'),
-                items: _tanzaBarangays
-                    .map((b) => DropdownMenuItem(value: b, child: Text(b)))
-                    .toList(),
+                items: _tanzaBarangays.map((b) => DropdownMenuItem(value: b, child: Text(b))).toList(),
                 onChanged: (v) => setState(() => _barangay = v),
+                validator: (v) => v == null || v.isEmpty ? 'Select your barangay' : null,
+              ),
+              const SizedBox(height: 16),
+              AppInput(
+                label: 'Street address',
+                controller: _streetCtrl,
                 validator: (v) =>
-                    v == null || v.isEmpty ? 'Select your barangay' : null,
+                    v == null || v.trim().length < 2 ? 'Street address is required' : null,
               ),
               const SizedBox(height: 24),
-              const Text('Emergency Contact',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+              const Text('Emergency Contact', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
               const SizedBox(height: 12),
               AppInput(
-                label: 'Contact person name',
-                controller: _emergencyNameCtrl,
+                label: 'Contact name',
+                controller: _ecNameCtrl,
                 validator: (v) =>
-                    v == null || v.trim().length < 2 ? 'Enter contact name' : null,
+                    v == null || v.trim().length < 2 ? 'Emergency contact name is required' : null,
               ),
               const SizedBox(height: 16),
               AppInput(
                 label: 'Contact number',
-                controller: _emergencyNumberCtrl,
+                controller: _ecNumberCtrl,
                 keyboardType: TextInputType.phone,
                 validator: (v) =>
-                    v == null || v.trim().length < 7 ? 'Enter a valid phone number' : null,
+                    v == null || v.trim().length < 7 ? 'Enter a valid contact number' : null,
               ),
               const SizedBox(height: 24),
               if (_municipality != 'Tanza')

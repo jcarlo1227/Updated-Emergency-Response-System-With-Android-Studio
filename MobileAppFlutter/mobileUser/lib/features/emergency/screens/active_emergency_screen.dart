@@ -32,6 +32,7 @@ class _ActiveEmergencyScreenState extends ConsumerState<ActiveEmergencyScreen> {
   StreamSubscription? _locationSub;
   bool _loading = true;
   bool _cancelling = false;
+  bool _socketConnected = false;
 
   @override
   void initState() {
@@ -83,10 +84,26 @@ class _ActiveEmergencyScreenState extends ConsumerState<ActiveEmergencyScreen> {
     final token = await ref.read(secureStorageProvider).getAccessToken();
     _socket = io.io(
       AppConfig.apiBaseUrl.replaceAll('/api', ''),
-      io.OptionBuilder().setTransports(['websocket']).setAuth({
-        'token': token,
-      }).build(),
+      io.OptionBuilder()
+          .setTransports(['websocket'])
+          .setAuth({'token': token})
+          .enableForceNew()
+          .setReconnectionDelay(2000)
+          .setReconnectionDelayMax(10000)
+          .build(),
     );
+    _socket!.onConnect((_) {
+      if (mounted) setState(() => _socketConnected = true);
+    });
+    _socket!.onDisconnect((_) {
+      if (mounted) setState(() => _socketConnected = false);
+    });
+    _socket!.onConnectError((_) {
+      if (mounted) setState(() => _socketConnected = false);
+    });
+    _socket!.onError((_) {
+      if (mounted) setState(() => _socketConnected = false);
+    });
     _socket!.on('emergency.updated', (_) => _load());
     _socket!.on('emergency.assigned', (_) => _load());
     _socket!.on('emergency.responder_on_the_way', (_) => _load());
@@ -171,12 +188,12 @@ class _ActiveEmergencyScreenState extends ConsumerState<ActiveEmergencyScreen> {
             ),
         ],
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
+      body: Column(
               children: [
                 Expanded(
-                  child: FlutterMap(
+                  child: Stack(
+                    children: [
+                      FlutterMap(
                     options: MapOptions(
                       initialCenter:
                           _userLatLng ??
@@ -214,6 +231,59 @@ class _ActiveEmergencyScreenState extends ConsumerState<ActiveEmergencyScreen> {
                             ),
                         ],
                       ),
+                    ],
+                  ),
+                  if (_loading || !_socketConnected)
+                    Positioned(
+                      top: 8,
+                      left: 8,
+                      right: 8,
+                      child: Material(
+                        color: Colors.transparent,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.92),
+                            borderRadius: BorderRadius.circular(20),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Colors.black12,
+                                blurRadius: 4,
+                                offset: Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: _loading
+                                    ? const CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      )
+                                    : const Icon(
+                                        Icons.cloud_off,
+                                        size: 14,
+                                        color: AppColors.warningAmber,
+                                      ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                _loading
+                                    ? 'Loading emergency…'
+                                    : 'Reconnecting to live feed…',
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
                     ],
                   ),
                 ),

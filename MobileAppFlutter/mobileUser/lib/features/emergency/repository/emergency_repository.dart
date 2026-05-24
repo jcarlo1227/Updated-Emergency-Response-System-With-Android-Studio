@@ -19,24 +19,19 @@ class EmergencyRepository {
     String? notes,
   }) async {
     try {
-      final response = await _dio.post(
-        '/emergencies',
-        data: {
-          'type': type,
-          'source': 'mobile_app',
-          'location': {
-            'type': 'Point',
-            'coordinates': [location.longitude, location.latitude],
-            'accuracyMeters': location.accuracy,
-            'capturedAt': DateTime.now().toUtc().toIso8601String(),
-          },
-          if (barangay != null) 'barangay': barangay,
-          if (notes != null) 'notes': notes,
+      final response = await _dio.post('/emergencies', data: {
+        'type': type,
+        'source': 'mobile_app',
+        'location': {
+          'type': 'Point',
+          'coordinates': [location.longitude, location.latitude],
+          'accuracyMeters': location.accuracy,
+          'capturedAt': DateTime.now().toUtc().toIso8601String(),
         },
-      );
-      final data =
-          (response.data as Map<String, dynamic>)['data']
-              as Map<String, dynamic>;
+        'barangay': ?barangay,
+        'notes': ?notes,
+      });
+      final data = (response.data as Map<String, dynamic>)['data'] as Map<String, dynamic>;
       return EmergencyModel.fromJson(data);
     } on DioException catch (e) {
       throw dioErrorToApiException(e);
@@ -52,25 +47,20 @@ class EmergencyRepository {
     String? barangay,
   }) async {
     try {
-      final response = await _dio.post(
-        '/emergencies/from-iot',
-        data: {
-          'deviceId': deviceId,
-          'eventId': eventId,
-          'buttonType': buttonType,
-          if (deviceBattery != null) 'deviceBatteryAtTrigger': deviceBattery,
-          'location': {
-            'type': 'Point',
-            'coordinates': [location.longitude, location.latitude],
-            'accuracyMeters': location.accuracy,
-            'capturedAt': DateTime.now().toUtc().toIso8601String(),
-          },
-          if (barangay != null) 'barangay': barangay,
+      final response = await _dio.post('/emergencies/from-iot', data: {
+        'deviceId': deviceId,
+        'eventId': eventId,
+        'buttonType': buttonType,
+        'deviceBatteryAtTrigger': ?deviceBattery,
+        'location': {
+          'type': 'Point',
+          'coordinates': [location.longitude, location.latitude],
+          'accuracyMeters': location.accuracy,
+          'capturedAt': DateTime.now().toUtc().toIso8601String(),
         },
-      );
-      final data =
-          (response.data as Map<String, dynamic>)['data']
-              as Map<String, dynamic>;
+        'barangay': ?barangay,
+      });
+      final data = (response.data as Map<String, dynamic>)['data'] as Map<String, dynamic>;
       return EmergencyModel.fromJson(data);
     } on DioException catch (e) {
       throw dioErrorToApiException(e);
@@ -80,38 +70,26 @@ class EmergencyRepository {
   Future<EmergencyModel> getEmergency(String id) async {
     try {
       final response = await _dio.get('/emergencies/$id');
-      final data =
-          (response.data as Map<String, dynamic>)['data']
-              as Map<String, dynamic>;
+      final data = (response.data as Map<String, dynamic>)['data'] as Map<String, dynamic>;
       return EmergencyModel.fromJson(data);
     } on DioException catch (e) {
       throw dioErrorToApiException(e);
     }
   }
 
-  Future<List<EmergencyModel>> getMyEmergencies({
-    int page = 1,
-    int limit = 20,
-  }) async {
+  Future<List<EmergencyModel>> getMyEmergencies() async {
     try {
-      final response = await _dio.get(
-        '/emergencies/my',
-        queryParameters: {'page': page, 'limit': limit},
-      );
-      final data =
-          (response.data as Map<String, dynamic>)['data']
-              as Map<String, dynamic>;
+      final response = await _dio.get('/emergencies/my');
+      final data = (response.data as Map<String, dynamic>)['data'] as Map<String, dynamic>;
       final items = data['items'] as List? ?? [];
-      return items
-          .map((e) => EmergencyModel.fromJson(e as Map<String, dynamic>))
-          .toList();
+      return items.map((e) => EmergencyModel.fromJson(e as Map<String, dynamic>)).toList();
     } on DioException catch (e) {
       throw dioErrorToApiException(e);
     }
   }
 
   Future<EmergencyModel?> getCurrentActiveEmergency() async {
-    final emergencies = await getMyEmergencies(limit: 100);
+    final emergencies = await getMyEmergencies();
     for (final emergency in emergencies) {
       if (emergency.isActive) return emergency;
     }
@@ -120,10 +98,9 @@ class EmergencyRepository {
 
   Future<void> cancelEmergency(String id, {String? reason}) async {
     try {
-      await _dio.post(
-        '/emergencies/$id/cancel',
-        data: {if (reason != null) 'reason': reason},
-      );
+      await _dio.post('/emergencies/$id/cancel', data: {
+        'reason': ?reason,
+      });
     } on DioException catch (e) {
       throw dioErrorToApiException(e);
     }
@@ -134,15 +111,12 @@ class EmergencyRepository {
     String? emergencyId,
   }) async {
     try {
-      await _dio.post(
-        '/locations/user',
-        data: {
-          'coordinates': [location.longitude, location.latitude],
-          'accuracyMeters': location.accuracy,
-          'capturedAt': DateTime.now().toUtc().toIso8601String(),
-          if (emergencyId != null) 'emergencyId': emergencyId,
-        },
-      );
+      await _dio.post('/locations/user', data: {
+        'coordinates': [location.longitude, location.latitude],
+        'accuracyMeters': location.accuracy,
+        'capturedAt': DateTime.now().toUtc().toIso8601String(),
+        'emergencyId': ?emergencyId,
+      });
     } on DioException catch (_) {
       // silently fail location updates
     }

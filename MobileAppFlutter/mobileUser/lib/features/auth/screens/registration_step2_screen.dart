@@ -6,7 +6,6 @@ import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/widgets/app_button.dart';
-import '../providers/auth_provider.dart';
 import '../repository/auth_repository.dart';
 import '../../../core/networking/api_exception.dart';
 
@@ -62,15 +61,15 @@ class _RegistrationStep2ScreenState extends ConsumerState<RegistrationStep2Scree
         email: d['email'] as String,
         phone: d['phone'] as String,
         password: d['password'] as String,
-        municipality: d['municipality'] as String?,
-        barangay: d['barangay'] as String?,
         streetAddress: d['streetAddress'] as String,
         dateOfBirth: DateTime.parse(d['dateOfBirth'] as String),
         bloodType: d['bloodType'] as String,
         emergencyContactName: d['emergencyContactName'] as String,
         emergencyContactNumber: d['emergencyContactNumber'] as String,
-        faceCapture: _faceFile!,
+        municipality: d['municipality'] as String?,
+        barangay: d['barangay'] as String?,
         proofOfResidency: _idFile!,
+        faceCapture: _faceFile!,
       );
       if (mounted) context.go('/pending');
     } on ApiException catch (e) {

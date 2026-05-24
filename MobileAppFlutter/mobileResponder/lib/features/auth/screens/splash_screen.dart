@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import '../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_colors.dart';
 import '../providers/auth_provider.dart';
 
 class SplashScreen extends ConsumerStatefulWidget {
@@ -20,8 +20,9 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
   void _navigate() {
     if (!mounted) return;
     final state = ref.read(authStateProvider);
-    if (state is AuthAuthenticated) context.go('/duty');
-    else if (state is AuthPending) context.go('/pending');
+    if (state is AuthAuthenticated) {
+      context.go('/duty');
+    } else if (state is AuthPending) context.go('/pending');
     else context.go('/login');
   }
 
@@ -29,8 +30,9 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
   Widget build(BuildContext context) {
     ref.listen(authStateProvider, (_, next) {
       if (!mounted) return;
-      if (next is AuthAuthenticated) context.go('/duty');
-      else if (next is AuthPending) context.go('/pending');
+      if (next is AuthAuthenticated) {
+        context.go('/duty');
+      } else if (next is AuthPending) context.go('/pending');
       else if (next is AuthUnauthenticated) context.go('/login');
     });
     return Scaffold(

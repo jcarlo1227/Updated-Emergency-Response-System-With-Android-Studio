@@ -4,9 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
-import '../../../core/theme/app_colors.dart';
-import '../../../core/widgets/app_button.dart';
-import '../../../core/widgets/app_input.dart';
+import '../../../../core/theme/app_colors.dart';
+import '../../../../core/widgets/app_button.dart';
+import '../../../../core/widgets/app_input.dart';
+import '../providers/auth_provider.dart';
 import '../repository/auth_repository.dart';
 import '../../../core/networking/api_exception.dart';
 
@@ -66,13 +67,10 @@ class _RegistrationScreenState extends ConsumerState<RegistrationScreen> {
     setState(() { _loading = true; _error = null; });
     try {
       await ref.read(authRepositoryProvider).registerResponder(
-        name: _nameCtrl.text.trim(),
-        email: _emailCtrl.text.trim(),
-        password: _passCtrl.text,
-        badgeId: _badgeCtrl.text.trim(),
-        department: _department,
+        name: _nameCtrl.text.trim(), email: _emailCtrl.text.trim(),
+        password: _passCtrl.text, badgeId: _badgeCtrl.text.trim(),
+        department: _department, agencyType: _agencyType,
         phone: _phoneCtrl.text.trim().isEmpty ? null : _phoneCtrl.text.trim(),
-        agencyType: _agencyType,
         stationName: _stationCtrl.text.trim().isEmpty ? null : _stationCtrl.text.trim(),
         position: _positionCtrl.text.trim().isEmpty ? null : _positionCtrl.text.trim(),
         coverageArea: _coverageCtrl.text.trim().isEmpty ? null : _coverageCtrl.text.trim(),

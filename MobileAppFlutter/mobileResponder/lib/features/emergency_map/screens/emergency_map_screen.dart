@@ -26,6 +26,7 @@ class _EmergencyMapScreenState extends ConsumerState<EmergencyMapScreen> {
   String? _typeFilter;
   io.Socket? _socket;
   bool _loading = true;
+  bool _socketConnected = false;
   final MapController _mapController = MapController();
 
   @override
@@ -34,16 +35,23 @@ class _EmergencyMapScreenState extends ConsumerState<EmergencyMapScreen> {
     _init();
   }
 
-  Future<void> _init() async {
-    await _loadFeed();
-    await _getLocation();
-    await _connectSocket();
+  void _init() {
+    // Kick off the three startup steps independently so a slow GPS fix
+    // never blocks the alert feed or the live socket connection.
+    unawaited(_loadFeed());
+    unawaited(_connectSocket());
+    unawaited(_getLocation());
   }
 
   Future<void> _loadFeed() async {
-    setState(() => _loading = true);
-    await ref.read(emergencyFeedProvider.notifier).refresh(type: _typeFilter);
-    if (mounted) setState(() => _loading = false);
+    if (mounted) setState(() => _loading = true);
+    try {
+      await ref.read(emergencyFeedProvider.notifier).refresh(type: _typeFilter);
+    } catch (_) {
+      // Keep stale feed visible; user can pull-to-retry via the refresh button.
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   Future<void> _getLocation() async {
@@ -52,21 +60,47 @@ class _EmergencyMapScreenState extends ConsumerState<EmergencyMapScreen> {
       if (perm == LocationPermission.denied) {
         perm = await Geolocator.requestPermission();
       }
-      if (perm == LocationPermission.deniedForever) return;
-      final pos = await Geolocator.getCurrentPosition();
+      if (perm == LocationPermission.deniedForever ||
+          perm == LocationPermission.denied) {
+        return;
+      }
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 10),
+        ),
+      );
       if (!mounted) return;
       setState(() => _myLocation = LatLng(pos.latitude, pos.longitude));
-    } catch (_) {}
+    } catch (_) {
+      // GPS timeout or unavailable — map still works, just no "you are here" pin.
+    }
   }
 
   Future<void> _connectSocket() async {
     final token = await ref.read(secureStorageProvider).getAccessToken();
     _socket = io.io(
       AppConfig.apiBaseUrl.replaceAll('/api', ''),
-      io.OptionBuilder().setTransports(['websocket']).setAuth({
-        'token': token,
-      }).build(),
+      io.OptionBuilder()
+          .setTransports(['websocket'])
+          .setAuth({'token': token})
+          .enableForceNew()
+          .setReconnectionDelay(2000)
+          .setReconnectionDelayMax(10000)
+          .build(),
     );
+    _socket!.onConnect((_) {
+      if (mounted) setState(() => _socketConnected = true);
+    });
+    _socket!.onDisconnect((_) {
+      if (mounted) setState(() => _socketConnected = false);
+    });
+    _socket!.onConnectError((_) {
+      if (mounted) setState(() => _socketConnected = false);
+    });
+    _socket!.onError((_) {
+      if (mounted) setState(() => _socketConnected = false);
+    });
     Future<void> handleEvent(dynamic data) async {
       try {
         final payload = data as Map<String, dynamic>;
@@ -240,7 +274,57 @@ class _EmergencyMapScreenState extends ConsumerState<EmergencyMapScreen> {
                     ),
                   ],
                 ),
-                if (_loading) const Center(child: CircularProgressIndicator()),
+                if (_loading || !_socketConnected)
+                  Positioned(
+                    top: 8,
+                    left: 8,
+                    right: 8,
+                    child: Material(
+                      color: Colors.transparent,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.92),
+                          borderRadius: BorderRadius.circular(20),
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Colors.black12,
+                              blurRadius: 4,
+                              offset: Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: _loading
+                                  ? const CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    )
+                                  : Icon(
+                                      Icons.cloud_off,
+                                      size: 14,
+                                      color: AppColors.warningAmber,
+                                    ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              _loading
+                                  ? 'Loading alerts…'
+                                  : 'Reconnecting to live feed…',
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -621,13 +705,18 @@ class _OnTheWayRowState extends State<_OnTheWayRow> {
 
   @override
   Widget build(BuildContext context) {
-    final currentId = widget.ref.read(currentResponderProvider)?.id;
+    final responder = widget.ref.read(currentResponderProvider);
+    final currentId = responder?.id;
     final status = widget.emergency.status;
     final isPending = status == 'pending';
     final isMyAssignment =
         status == 'assigned' &&
         widget.emergency.assignedResponderId != null &&
         widget.emergency.assignedResponderId == currentId;
+    final canSelfAccept =
+        isPending && (responder?.canSelfAssign(widget.emergency.type) ?? false);
+    final outOfRole =
+        isPending && !(responder?.canSelfAssign(widget.emergency.type) ?? false);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -647,7 +736,29 @@ class _OnTheWayRowState extends State<_OnTheWayRow> {
             );
           },
         ),
-        if (isPending) ...[
+        if (outOfRole) ...[
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFEF3C7),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.lock_outline, size: 16, color: AppColors.warningAmber),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Outside your role — only admin can assign this to you.',
+                    style: TextStyle(fontSize: 12, color: AppColors.warningAmber),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+        if (canSelfAccept) ...[
           const SizedBox(height: 10),
           ElevatedButton.icon(
             icon: _loading

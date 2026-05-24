@@ -95,6 +95,11 @@ class ResponderModel {
     return types;
   }
 
+  // Feed visibility: true when no role is configured (show all) or role matches.
   bool canHandleEmergencyType(String type) =>
-      allowedEmergencyTypes.contains(type);
+      allowedEmergencyTypes.isEmpty || allowedEmergencyTypes.contains(type);
+
+  // Self-accept: only when the responder's role explicitly covers this type.
+  bool canSelfAssign(String type) =>
+      allowedEmergencyTypes.isNotEmpty && allowedEmergencyTypes.contains(type);
 }

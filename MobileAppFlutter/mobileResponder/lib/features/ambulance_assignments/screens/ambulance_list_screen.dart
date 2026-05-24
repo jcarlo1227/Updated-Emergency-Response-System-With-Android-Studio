@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import '../../../core/theme/app_colors.dart';
-import '../../../core/widgets/status_badge.dart';
+import '../../../../core/theme/app_colors.dart';
+import '../../../../core/widgets/status_badge.dart';
 import '../models/ambulance_request_model.dart';
 import '../repository/ambulance_repository.dart';
 
@@ -16,11 +16,6 @@ class AmbulanceListScreen extends ConsumerWidget {
     final async = ref.watch(_assignedProvider);
     return Scaffold(
       appBar: AppBar(
-        leading: IconButton(
-          tooltip: 'Back',
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.go('/duty'),
-        ),
         title: const Text('Ambulance Assignments'),
         actions: [IconButton(icon: const Icon(Icons.refresh, color: Colors.white), onPressed: () => ref.invalidate(_assignedProvider))],
       ),
@@ -36,7 +31,7 @@ class AmbulanceListScreen extends ConsumerWidget {
             : ListView.separated(
                 padding: const EdgeInsets.all(16),
                 itemCount: list.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 10),
+                separatorBuilder: (_, _) => const SizedBox(height: 10),
                 itemBuilder: (_, i) {
                   final req = list[i];
                   return GestureDetector(

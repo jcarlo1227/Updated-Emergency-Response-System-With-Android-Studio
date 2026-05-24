@@ -172,10 +172,12 @@ export async function listActive(args: ListActiveQuery, auth: AuthContext) {
       .lean();
     if (!responder) throw new AppError('Responder not found', 404, 'NOT_FOUND');
     const allowedTypes = emergencyTypesForResponder(responder);
-    filter.$or = [
-      { assignedResponderId: new mongoose.Types.ObjectId(auth.accountId) },
-      { type: { $in: allowedTypes } },
-    ];
+    if (allowedTypes.length > 0) {
+      filter.$or = [
+        { assignedResponderId: new mongoose.Types.ObjectId(auth.accountId) },
+        { type: { $in: allowedTypes } },
+      ];
+    }
   }
 
   const skip = (args.page - 1) * args.limit;
