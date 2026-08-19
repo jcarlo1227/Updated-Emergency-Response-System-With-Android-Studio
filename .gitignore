@@ -1,9 +1,20 @@
-node_modulesdist
+node_modules
+dist
+**/dist/
+
+# Env files (never commit real secrets)
 .env
-.env.local
+.env.*
+!.env.example
+
+# Editor / tool local settings
+.codex/settings.local.json
+.vscode/settings.json
+.idea/
+
+# Logs
 *.log
 .DS_Store
-node_modules
 
 # Cloudflare tunnel (local-only)
 tools/cloudflared.exe

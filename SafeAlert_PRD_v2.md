@@ -61,7 +61,7 @@ Current password: "123" → **EXTREMELY UNSAFE**
 
 PORT=5000  
 NODE_ENV=development  
-MONGODB_URI=mongodb+srv://<USER>:<PASSWORD>@cluster0.6owja5b.mongodb.net/safealert  
+MONGODB_URI=mongodb+srv://<USER>:<PASSWORD>@<CLUSTER>.mongodb.net/safealert  
 JWT_SECRET=<generate>  
 JWT_EXPIRES_IN=15m  
 CORS_ORIGIN=http://localhost:3000  
