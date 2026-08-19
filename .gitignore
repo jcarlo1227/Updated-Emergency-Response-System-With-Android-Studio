@@ -3,13 +3,20 @@ node_modules/
 
 # Build outputs
 dist/
+**/dist/
 build/
 .dart_tool/
 .gradle/
 
-# Environment files
+# Env files (never commit real secrets)
 .env
-.env.local
+.env.*
+!.env.example
+
+# Editor / tool local settings
+.codex/settings.local.json
+.vscode/settings.json
+.idea/
 
 # Logs
 *.log
