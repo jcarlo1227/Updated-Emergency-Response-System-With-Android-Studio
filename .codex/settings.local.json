@@ -20,7 +20,7 @@
       "Bash(grep -v \"//.*any\\\\|Record<string, unknown>\\\\|Mixed\")",
       "Bash(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:5000/api/auth/login -H 'Content-Type: application/json' -d '{\"email\":\"wrong@test.com\",\"password\":\"wrongpass\"}')",
       "Bash(curl -s -X POST http://localhost:5000/api/auth/login -H 'Content-Type: application/json' -d '{\"email\":{\"$ne\":\"\"},\"password\":{\"$ne\":\"\"}}')",
-      "Bash(curl -s -X POST http://localhost:5000/api/auth/login -H 'Content-Type: application/json' -d '{\"email\":\"admin@safealert.local\",\"password\":\"admin1234\"}')",
+      "Bash(curl -s -X POST http://localhost:5000/api/auth/login -H 'Content-Type: application/json' -d '{\"email\":\"admin@tanzalert.local\",\"password\":\"admin1234\"}')",
       "Bash(npm test *)",
       "Bash(flutter test *)",
       "Bash(flutter build *)",

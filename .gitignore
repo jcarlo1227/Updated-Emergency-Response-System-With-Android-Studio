@@ -1,9 +1,22 @@
-node_modulesdist
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+.dart_tool/
+.gradle/
+
+# Environment files
 .env
 .env.local
+
+# Logs
 *.log
+
+# OS
 .DS_Store
-node_modules
+Thumbs.db
 
 # Cloudflare tunnel (local-only)
 tools/cloudflared.exe
